@@ -12,7 +12,7 @@ from . import utils
 from .datastructures import TrainingExample
 from hrl.agent.rainbow.rainbow import Rainbow
 from hrl.salient_event.salient_event import SalientEvent
-from .classifier.sift_classifier import SiftInitiationClassifier
+#from .classifier.sift_classifier import SiftInitiationClassifier
 from .classifier.position_classifier import PositionInitiationClassifier
 from .classifier.fixed_conv_classifier import FixedConvInitiationClassifier
 from .classifier.ensemble_init_classifier import EnsembleInitiationClassifier
@@ -103,10 +103,11 @@ class ModelFreeOption(object):
         if self.use_pos_for_init:
             return PositionInitiationClassifier()
         if self.classifier_type == "sift":
-            return SiftInitiationClassifier(
-                num_clusters=self.num_kmeans_clusters,
-                sift_threshold=self.sift_threshold,
-            )
+            raise NotImplementedError('sift removed for compatibility purposes')
+            #return SiftInitiationClassifier(
+            #    num_clusters=self.num_kmeans_clusters,
+            #    sift_threshold=self.sift_threshold,
+            #)
         device = torch.device(
             f"cuda:{self.gpu_id}" if self.gpu_id > -1 else "cpu"
         )
