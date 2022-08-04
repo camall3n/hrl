@@ -23,7 +23,7 @@ def make_env(env_name, seed, test_mode, test_epsilon=0.05, terminal_on_loss_of_l
 
     if test_mode:
         env = pfrl.wrappers.RandomizeAction(env, test_epsilon)
-    
+
     return MontezumaInfoWrapper(env)
 
 
@@ -92,11 +92,11 @@ if __name__ == "__main__":
     _log_rewards = []
     _log_max_rewards = []
 
-    g0 = load_goal_state(os.path.join(os.path.expanduser("~"), "git-repos/hrl/logs/goal_states"))
+    g0 = load_goal_state(os.path.join(os.path.expanduser("~"), "dev/hrl/logs/goal_states"))
 
     while current_step_number < args.num_training_steps:
         s0 = env.reset()
-        
+
         if args.goal_conditioned:
             episodic_reward, episodic_duration, max_episodic_reward = rainbow_agent.gc_rollout(env,
                                                                                                s0,
@@ -118,7 +118,7 @@ if __name__ == "__main__":
 
         with open(_log_file, "wb+") as f:
             episode_metrics = {
-                            "step": _log_steps, 
+                            "step": _log_steps,
                             "reward": _log_rewards,
                             "max_reward": _log_max_rewards
             }

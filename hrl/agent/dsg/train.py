@@ -36,13 +36,13 @@ def load_goal_state(dir_path, file):
 
 
 def get_exploration_agent(rnd_base_dir):
-    """ Return the exploration runner from BBE. """ 
+    """ Return the exploration runner from BBE. """
     from dopamine.discrete_domains import run_experiment
     from hrl.agent.bonus_based_exploration.run_experiment import create_exploration_runner as create_runner
     from hrl.agent.bonus_based_exploration.run_experiment import create_exploration_agent as create_agent
 
     _gin_files = [
-        os.path.expanduser("~/git-repos/hrl/hrl/agent/bonus_based_exploration/configs/rainbow_rnd.gin")
+        os.path.expanduser("~/dev/hrl/hrl/agent/bonus_based_exploration/configs/rainbow_rnd.gin")
     ]
 
     run_experiment.load_gin_configs(_gin_files, [])
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument("--replay_original_goal_on_pos", action="store_true", default=False)
 
     parser.add_argument("--distance_metric", type=str, default="euclidean")
-    
+
     parser.add_argument("--enable_rnd_logging", action="store_true", default=False)
     parser.add_argument("--disable_graph_expansion", action="store_true", default=False)
     parser.add_argument("--use_predefined_events", action="store_true", default=False)
@@ -100,7 +100,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # initiation_classifier_type is the type of image classifier we want to use
-    if args.use_pos_for_init: 
+    if args.use_pos_for_init:
         assert args.initiation_classifier_type == ""
     if args.initiation_classifier_type != "":
         assert not args.use_pos_for_init
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     _rnd_log_file = os.path.join(_rnd_base_dir, "rnd_log.pkl")
 
     exploration_agent = get_exploration_agent(_rnd_base_dir)
-    
+
     env = MontezumaInfoWrapper(
             FrameStack(
                 Reshape(
@@ -135,22 +135,22 @@ if __name__ == "__main__":
                 ),
                 channel_order="chw"
             ),
-            k=4, channel_order="chw"   
+            k=4, channel_order="chw"
         )
     )
 
     s0, _ = env.reset()
     p0 = env.get_current_position()
 
-    goal_dir_path = os.path.join(os.path.expanduser("~"), "git-repos/hrl/logs/goal_states")
-    
+    goal_dir_path = os.path.join(os.path.expanduser("~"), "dev/hrl/logs/goal_states")
+
     gpos = (123, 148)
     gpos1 = (132, 192)
     gpos2 = (24, 235)
     gpos3 = (130, 235)
     gpos4 = (77, 192)
     gpos5 = (23, 148)
-    
+
     g0 = load_goal_state(goal_dir_path, file="bottom_right_states.pkl")
     g1 = load_goal_state(goal_dir_path, file="top_bottom_right_ladder_states.pkl")
     g2 = load_goal_state(goal_dir_path, file="left_door_goal.pkl")
@@ -200,10 +200,10 @@ if __name__ == "__main__":
                                 args.distance_metric,
                                 args.min_n_points_for_expansion,
                                 args.use_empirical_distances)
-    
+
     trainer = DSGTrainer(env, dsc_agent, dsg_agent, exploration_agent,
-                         args.n_consolidation_episodes, 
-                         args.n_expansion_episodes, 
+                         args.n_consolidation_episodes,
+                         args.n_expansion_episodes,
                          _rnd_log_file,
                          args.goal_selection_criterion,
                          predefined_events,
@@ -218,7 +218,7 @@ if __name__ == "__main__":
                          expansion_fraction_threshold=args.expansion_fraction_threshold)
 
     print(f"[Seed={args.seed}] Device count: {torch.cuda.device_count()} Device Name: {torch.cuda.get_device_name(0)}")
-    
+
     t0 = time.time()
 
     # Create some possibly easy salient events using RND
@@ -227,19 +227,19 @@ if __name__ == "__main__":
         trainer.graph_expansion_run_loop(warmup_iteration * args.n_expansion_episodes,
                                          num_episodes=args.n_expansion_episodes)
     trainer.create_sparse_graph = args.create_sparse_graph
-    
+
     # After getting some easy goals, lets pre-train RND for a bit
     pretrain_start_episode = (warmup_iteration + 1) * args.n_expansion_episodes
 
     for current_episode in range(pretrain_start_episode, pretrain_start_episode + 50):
         state, info = trainer.env.reset()
         _, obs_traj, _, _, info_traj = trainer.exploration_rollout(state, current_episode)
-        
+
         if trainer.use_empirical_distances:
             dsg_agent.update_empirical_distance_estimates(
                 info_traj, trainer.salient_events
             )
 
     # Full run loop that alternates between expansion and consolidation
-    trainer.run_loop(current_episode + 1, int(1e5))    
+    trainer.run_loop(current_episode + 1, int(1e5))
     print(f"Finished after {(time.time() - t0) / 3600.} hrs")

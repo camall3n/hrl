@@ -16,8 +16,8 @@ from hrl.montezuma.montezuma_mdp import MontezumaMDP
 STARTING_POSITION = (77, 235)
 BOTTOM_RIGHT_POSITION = (123, 148)
 
-""" 
-TODO: 
+"""
+TODO:
 1. [Done] Goal-conditioned architecture for the Q-function
 2. Function to load the goal images from disk
    i)  [Done] bottom right of the screen
@@ -41,7 +41,7 @@ def make_env(env_name, seed, test_mode, episode_life, test_epsilon=0.05, max_fra
 
     if test_mode:
         env = pfrl.wrappers.RandomizeAction(env, test_epsilon)
-    
+
     return MontezumaMDP(env, render=False)
 
 
@@ -77,7 +77,7 @@ def reward_function(state):
     reward = float(done)
     return reward, done
 
-    
+
 def reset(mdp):
     mdp.reset()
 
@@ -105,7 +105,7 @@ if __name__ == "__main__":
         json.dump(args.__dict__, _args_file, indent=2)
 
     _log_file = f"logs/{args.experiment_name}/{args.seed}/dqn_log.pkl"
-    _path_to_goals = os.path.join(os.path.expanduser("~"), "git-repos/hrl/logs/goal_states")
+    _path_to_goals = os.path.join(os.path.expanduser("~"), "dev/hrl/logs/goal_states")
 
     mdp = make_env(args.environment_name, test_mode=False, seed=args.seed,
                    max_frames=4500, episode_life=args.terminal_on_loss_of_life)
@@ -153,7 +153,7 @@ if __name__ == "__main__":
 
         with open(_log_file, "wb+") as f:
             episode_metrics = {
-                            "step": _log_steps, 
+                            "step": _log_steps,
                             "reward": _log_rewards,
                             "max_reward": _log_max_rewards
             }
