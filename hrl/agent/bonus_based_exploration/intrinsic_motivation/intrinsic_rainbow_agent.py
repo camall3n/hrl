@@ -227,6 +227,8 @@ class RNDRainbowAgent(
         optimizer=optimizer,
         summary_writer=summary_writer,
         summary_writing_frequency=summary_writing_frequency)
+    if hasattr(self, '_sess'):
+        self.intrinsic_model._sess = self._sess
 
   def _build_networks(self):
     super()._build_networks()
@@ -245,7 +247,7 @@ class RNDRainbowAgent(
   def _get_value_function(self, stacks, chunk_size=1000):
 
     values = np.empty(len(stacks))
-    
+
     def get_chunks(x, n):
       # Break x into chunks of n
       for i in range(0, len(x), n):

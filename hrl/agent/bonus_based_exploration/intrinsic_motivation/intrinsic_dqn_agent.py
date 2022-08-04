@@ -213,6 +213,8 @@ class RNDDQNAgent(base_intrinsic_agent.IntrinsicDQNAgent):
         optimizer=optimizer,
         summary_writer=summary_writer,
         summary_writing_frequency=summary_writing_frequency)
+    if hasattr(self, '_sess'):
+        self.intrinsic_model._sess = self._sess
 
   def _add_intrinsic_reward(self, observation, extrinsic_reward):
     """Compute the intrinsic reward for RND."""
