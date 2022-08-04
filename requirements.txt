@@ -1,5 +1,5 @@
 cloudpickle==1.6.0
-dopamine-rl
+dopamine-rl==4.0.5
 filelock==3.0.12
 gym==0.18.3
 ipdb==0.13.9
