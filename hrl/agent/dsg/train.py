@@ -3,6 +3,7 @@ import json
 import time
 import ipdb
 import pfrl
+import tensorflow as tf
 import torch
 import pickle
 import random
@@ -19,6 +20,7 @@ from hrl.montezuma.info_wrapper import MontezumaInfoWrapper
 from hrl.montezuma.wrappers import FrameStack, Reshape, ContinuingTimeLimit
 from hrl.montezuma.dopamine_env import AtariPreprocessing
 
+tf.compat.v1.disable_eager_execution()
 
 def load_goal_state(dir_path, file):
     file_name = os.path.join(dir_path, file)
