@@ -4,7 +4,7 @@ filelock==3.0.12
 gym==0.18.3
 ipdb==0.13.9
 matplotlib==3.4.2
-networkx==2.8.5
+networkx==2.6.3
 numpy==1.21.0
 pfrl==0.2.1
 Pillow==8.2.0
