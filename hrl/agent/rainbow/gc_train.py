@@ -87,9 +87,9 @@ if __name__ == "__main__":
         json.dump(args.__dict__, _args_file, indent=2)
 
     _log_file = f"logs/{args.experiment_name}/{args.seed}/rainbow_her_log.pkl"
-    _path_to_goals = os.path.join(os.path.expanduser("~"), "git-repos/hrl/logs/goal_states")
+    _path_to_goals = os.path.join(os.path.expanduser("~"), "dev/hrl/logs/goal_states")
 
-    env = make_env(args.environment_name, seed=args.seed, 
+    env = make_env(args.environment_name, seed=args.seed,
                    episode_life=False, max_frames=args.max_frames_per_episode)
 
     pfrl.utils.set_random_seed(args.seed)
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     _log_pursued_goals = []
 
     while current_step_number < args.num_training_steps:
-        
+
         if needs_reset:
             s0, info0 = env.reset()
             current_episode_number += 1
@@ -151,7 +151,7 @@ if __name__ == "__main__":
 
         with open(_log_file, "wb+") as f:
             episode_metrics = {
-                            "step": _log_steps, 
+                            "step": _log_steps,
                             "reward": _log_rewards,
                             "max_reward": _log_max_rewards,
                             "goal": _log_pursued_goals
