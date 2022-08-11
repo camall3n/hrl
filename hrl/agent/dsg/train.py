@@ -89,6 +89,8 @@ def main():
             parser.add_argument("--n_consolidation_episodes", type=int, default=50)
             parser.add_argument("--n_expansion_episodes", type=int, default=10)
             parser.add_argument("--n_warmup_iterations", type=int, default=5)
+            parser.add_argument("--n_rnd_pretrain_episodes", type=int, default=50)
+            parser.add_argument("--consolidation_duration", type=int, default=50)
 
             # Params for learning initiation set classifiers
             parser.add_argument("--use_pos_for_init", action="store_true", default=False)
