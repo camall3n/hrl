@@ -21,6 +21,7 @@ from hrl.agent.dsg.utils import visualize_consolidation_probabilities, visualize
 from hrl.agent.dsg.utils import visualize_graph_nodes_with_expansion_probabilities, plot_distance_table
 from hrl.agent.dsg.utils import get_regions_in_first_screen, get_lineant_regions_in_first_screen
 
+from timer import Timer
 
 class DSGTrainer:
     def __init__(self, env, dsc, dsg, rnd,
@@ -96,16 +97,16 @@ class DSGTrainer:
 
         if self.disable_graph_expansion:
             return False
-        
+
         if method == "frequency" or len(self.predefined_events) > 0:
             return episode % self.expansion_freq == 0
-        
+
         # When we have connected most of the graph, then its time to expand again
         s0 = self.init_salient_event.target_obs
         i0 = self.init_salient_event.target_info
 
         candidate_events = [event for event in self.salient_events if not event(i0)]
-        
+
         n_total = len(candidate_events)
         n_unconnected = len(self._get_unconnected_events(s0, i0))
         n_connected = n_total - n_unconnected
@@ -114,57 +115,62 @@ class DSGTrainer:
         return (n_total <= 4) or (n_connected / n_total) > self.expansion_fraction_threshold
 
     def run_loop(self, start_episode, num_episodes, consolidation_duration=50):
-        
+
         # Each iteration contains N episodes of expansion or M episodes of consolidation
         iteration = 0
         episode = start_episode
-        
+
         while episode < start_episode + num_episodes:
 
             if self.should_expand(episode) and self.graph_mode == "consolidation":
-                self.graph_expansion_run_loop(episode, self.expansion_duration)
+                with Timer('graph_expansion'):
+                    self.graph_expansion_run_loop(episode, self.expansion_duration)
                 episode += self.expansion_duration
             elif len(self.salient_events) > 0:
-                self.graph_consolidation_run_loop(episode, duration=consolidation_duration)
+                with Timer('graph_consolidation'):
+                    self.graph_consolidation_run_loop(episode, duration=consolidation_duration)
                 episode += consolidation_duration
             else:
                 ipdb.set_trace()
 
             if len(self.predefined_events) > 0:
-                self.distance_classification_accuracies.append(
-                    self.dsg_agent.evaluate_distance_metric_accuracy(
-                       self.salient_events, self.dsg_agent.distance_metric
+                with Timer('dist_metric_accuracy'):
+                    self.distance_classification_accuracies.append(
+                        self.dsg_agent.evaluate_distance_metric_accuracy(
+                        self.salient_events, self.dsg_agent.distance_metric
+                        )
                     )
-                ) 
 
-            t0 = time.time()
-            with open(self.dsc_agent.log_file, "wb+") as f:
-                pickle.dump(self.dsg_agent.gc_successes, f)
-            print(f"[Episode={episode} Seed={self.dsc_agent.seed}] Took {time.time() - t0}s to save gc logs")
+            with Timer('log_gc'):
+                t0 = time.time()
+                with open(self.dsc_agent.log_file, "wb+") as f:
+                    pickle.dump(self.dsg_agent.gc_successes, f)
+                print(f"[Episode={episode} Seed={self.dsc_agent.seed}] Took {time.time() - t0}s to save gc logs")
 
             if iteration > 0 and iteration % 5 == 0:
-                visualize_graph_nodes_with_expansion_probabilities(self.dsg_agent,
-                                                           episode,
-                                                           self.dsc_agent.experiment_name,
-                                                           self.dsc_agent.seed)
+                with Timer('visualize'):
+                    visualize_graph_nodes_with_expansion_probabilities(self.dsg_agent,
+                                                            episode,
+                                                            self.dsc_agent.experiment_name,
+                                                            self.dsc_agent.seed)
 
-                visualize_consolidation_probabilities(self, episode, 
-                                                    self.dsc_agent.experiment_name, self.dsc_agent.seed)
+                    visualize_consolidation_probabilities(self, episode,
+                                                        self.dsc_agent.experiment_name, self.dsc_agent.seed)
 
-                visualize_all_events(self, episode, self.dsc_agent.experiment_name, self.dsc_agent.seed)
+                    visualize_all_events(self, episode, self.dsc_agent.experiment_name, self.dsc_agent.seed)
 
-                plot_distance_table(self.dsg_agent.node_distances, self.salient_events, episode,
-                                    self.dsc_agent.experiment_name, self.dsc_agent.seed)
+                    plot_distance_table(self.dsg_agent.node_distances, self.salient_events, episode,
+                                        self.dsc_agent.experiment_name, self.dsc_agent.seed)
 
-                if self.dsc_agent.rnd_data_path:
-                    for option in self.dsc_agent.mature_options:
-                        plot_classifier_predictions(
-                            option, self.dsc_agent.rnd_frames,
-                            self.dsc_agent.rnd_rams, episode, 
-                            self.dsc_agent.seed, self.dsc_agent.experiment_name
-                        )
-            
-            iteration += 1  
+                    if self.dsc_agent.rnd_data_path:
+                        for option in self.dsc_agent.mature_options:
+                            plot_classifier_predictions(
+                                option, self.dsc_agent.rnd_frames,
+                                self.dsc_agent.rnd_rams, episode,
+                                self.dsc_agent.seed, self.dsc_agent.experiment_name
+                            )
+
+            iteration += 1
 
     def graph_expansion_run_loop(self, start_episode, num_episodes):
         exploration_inits = []
@@ -182,7 +188,7 @@ class DSGTrainer:
             state, info = self.env.reset()
             expansion_node = self.dsg_agent.get_node_to_expand()
             expansion_node.n_expansion_attempts += 1
-            
+
             print("=" * 80); print(f"[Expansion] Episode: {episode} Step: {self.env.T}"); print("=" * 80)
             print(f"Attempting to expand {expansion_node}")
 
@@ -228,7 +234,7 @@ class DSGTrainer:
                 new_events = self.convert_discovered_goals_to_salient_events(
                     extrinsic_subgoals+intrinsic_subgoals
                 )
-        
+
                 if self.make_off_policy_update:
                     for i in intrinsic_trajectory_idx + extrinsic_trajectory_idx:
                         pfrl_observations = self.dopamine2pfrl(exploration_inits[i], exploration_observations[i])
@@ -241,7 +247,7 @@ class DSGTrainer:
 
                 if self.enable_rnd_logging:
                     self.log_rnd_progress(intrinsic_subgoals, extrinsic_subgoals, new_events, episode)
-        
+
         # Now that we have created new `self.salient_events`, update their distances to other old nodes
         if self.use_empirical_distances:
             self.dsg_agent.update_empirical_distance_estimates(
@@ -263,10 +269,10 @@ class DSGTrainer:
         print(f"[RND Rollout] Reward: {rewards.sum()}\tIntrinsicReward: {intrinsic_rewards.sum()}")
 
         return initial_state, observations, actions, rewards, visited_infos
-        
+
     def dopamine2pfrl(self, init_state, observations):
         """ Convert a dopamine trajectory into one that can be consumed by pfrl. """
-        
+
         frame_stack = 4
         pfrl_observations = []
         s0 = init_state.transpose(3, 1, 2, 0)  # (1, 84, 84, 4) -> (4, 84, 84, 1)
@@ -356,9 +362,9 @@ class DSGTrainer:
         # self.rnd_agent.plot_value(episode=episode)
 
     def graph_consolidation_run_loop(self, episode, duration):
-        
+
         self.graph_mode = "consolidation"
-        
+
         for current_episode in range(episode, episode+duration):
             done = False
             reset = False
@@ -418,7 +424,7 @@ class DSGTrainer:
                 if selected_event is not None:
                     print(f"[RandomUnconnected] DSG selected event {selected_event}")
                     return selected_event
-            
+
             if self.goal_selection_criterion == "boltzmann_unconnected":
                 selected_event = self._select_boltzmann_closest_salient_event(state, info)
 
@@ -434,7 +440,7 @@ class DSGTrainer:
                     return selected_event
 
         selected_event = self._select_competence_progress_salient_event(state, info, "connected")
-        
+
         if selected_event is not None:
             print(f"[CompetenceConnected] DSG selected event: {selected_event}")
             return selected_event
@@ -491,12 +497,12 @@ class DSGTrainer:
 
             distance_matrix = self.dsg_agent.get_distance_matrix(
                 current_events,
-                unconnected_events, 
+                unconnected_events,
                 metric="empirical"
             )
 
             scores = 1. / distance_matrix
-            
+
             # Higher the temperature, wider the output distribution
             probabilities = special.softmax(
                 scores / 0.02,
@@ -509,7 +515,7 @@ class DSGTrainer:
             assert isinstance(selected_event, SalientEvent), type(selected_event)
 
             return selected_event
-    
+
     def _select_competence_progress_salient_event(self, state, info, select_among):
         """ Use competence progress to determine which salient event to target next. """
         # TODO: Currently this is agnostic to the start state of the learning curve
@@ -524,7 +530,7 @@ class DSGTrainer:
             candidate_events = self._get_connected_events(state, info)
 
         if len(candidate_events) > 1:
-        
+
             for event in candidate_events:
                 key = tuple(event.target_pos)
                 if key in self.dsg_agent.gc_successes and \
@@ -534,7 +540,7 @@ class DSGTrainer:
                     score = abs(n_recent_successes - n_past_successes) / window_size
                 else:  # Optimistic initialization
                     score = 1.
-                
+
                 scores.append(score)
 
             scores = np.array(scores)
@@ -637,7 +643,7 @@ class DSGTrainer:
 
     def delete_potential_nodes_from_graph(self):
         """ Delete nodes that are impossible to re-trigger. """
-        
+
         # Find bad events
         bad_events = []
         for event in self.salient_events:
@@ -657,12 +663,12 @@ class DSGTrainer:
             print(f"Removing {event} from the list of salient events.")
             self.salient_events.remove(event)
             self.dsg_agent.salient_events.remove(event)
-        
+
         # for chain in self.dsc_agent.chains:
         #     if chain.target_salient_event in bad_events:
         #         print(f"Removing {chain} targeting {chain.target_salient_event}")
         #         self.dsc_agent.chains.remove(chain)
-        
+
         # for option in self.dsc_agent.new_options:
         #     if option.target_salient_event in bad_events:
         #         print(f"Removing {option} targeting {option.target_salient_event}")
@@ -684,7 +690,7 @@ class DSGTrainer:
             pad_frames = [frames[0] for _ in range(n_pad_frames)]
             frames = pad_frames + frames
             assert len(frames) == 4, len(frames)
-        
+
         if frames[0].shape == (84, 84, 1):
             frames = [_safe_transpose(frame) for frame in frames]
 
@@ -732,7 +738,7 @@ class DSGTrainer:
         if len(f_observations) > 0:
 
             intrinsic_rewards = self.rnd_agent.reward_function(f_observations)
-            
+
             i = intrinsic_rewards.argmax()
             intrinsic_score = intrinsic_rewards.max()
 
@@ -745,11 +751,11 @@ class DSGTrainer:
                                         f_rewards[j]) for j in pos_extrinsic_idx]
 
             return intrinsic_score, best_intrinsic_sir_triple, best_extrinsic_sir_triples
-        
+
         return -np.inf, [], []
 
     def new_subgoal_extractor(self, observations, rewards, infos):
-        """ Given unfiltered dopamine trajectories (represented as lists of lists), 
+        """ Given unfiltered dopamine trajectories (represented as lists of lists),
         return the following:
         1. (s, i, r) triple corresponding to the highest intrinsic reward
         2. (s, i, r) triple corresponding to positive extrinsic rewards
@@ -766,12 +772,12 @@ class DSGTrainer:
             intrinsic_score, best_int_triple, ext_triples = self.score_exploration_trajectory(
                 obs_traj, reward_traj, info_traj
             )
-            
+
             if intrinsic_score > best_intrinsic_score:
                 best_intrinsic_score = intrinsic_score
                 best_intrinsic_triple = best_int_triple
                 best_intrinsic_trajectory_idx = i
-            
+
             if len(ext_triples) > 0:
                 extrinsic_triples.extend(ext_triples)
                 extrinsic_trajectory_idx.append(i)
@@ -784,7 +790,7 @@ class DSGTrainer:
     def filter_subgoals_based_on_sparsity_cond(self, sir_triples, trajectory_idx):
         filtered_triples = []
         filtered_trajectory_idx = []
-        
+
         sess = self.rnd_agent._agent.intrinsic_model._sess
         rnd_mean = sess.run(self.rnd_agent._agent.intrinsic_model.reward_mean)
         rnd_std = sess.run(self.rnd_agent._agent.intrinsic_model.reward_std)
@@ -810,11 +816,11 @@ class DSGTrainer:
         # A single salient event is expected to be in a single region
         if len(new_satisfied_regions) > 1:
             ipdb.set_trace()
-        
+
         # If the salient event is not in any of the acceptable regions, reject it
         if len(new_satisfied_regions) == 0:
             return True
-        
+
         # If the salient event is in a region where we already have another event, reject it
         satisfied_region = new_satisfied_regions[0]
         return satisfied_region in itertools.chain.from_iterable(old_satisfied_regions)
@@ -838,7 +844,7 @@ class DSGTrainer:
 
             # Only consider options that don't target the start state salient event
             root_options = [option for option in root_options if option.target_salient_event != self.init_salient_event]
-            
+
             # Only consider options which don't tend to predict true everywhere
             fp_cond = lambda clf: (clf.get_false_positive_rate() < 0.7).all()
             filtered_options = [option for option in root_options if fp_cond(option.initiation_classifier)]
@@ -855,7 +861,7 @@ class DSGTrainer:
 
             states = np.array(states).squeeze(3)  # (N, 84, 84, 1) --> (N, 84, 84)
             assert states.shape == (start_n_states, 84, 84), states.shape
-            
+
             for option in options:
 
                 if states.shape[0] > 0:
@@ -884,25 +890,25 @@ class DSGTrainer:
                    info["buggy_state"] or\
                    is_inside_another_event(info) or \
                    is_close_to_another_event(info)
-        
+
         if len(observations) > 3:
-            first_pass_triples = [(obs, reward, info) for obs, reward, info in 
+            first_pass_triples = [(obs, reward, info) for obs, reward, info in
                                 zip(observations, rewards, infos) if not should_reject(obs, info)]
-            
+
             first_pass_observations = [triple[0] for triple in first_pass_triples]
             first_pass_rewards = [triple[1] for triple in first_pass_triples]
             first_pass_infos = [triple[2] for triple in first_pass_triples]
 
             return first_pass_observations, first_pass_rewards, first_pass_infos
-            
+
             # if len(first_pass_observations) > 3:
-                
+
             #     accepted_observations, accepted_rewards, accepted_infos = apply_option_filtering_cond(
             #         first_pass_observations, first_pass_rewards, first_pass_infos
             #     )
 
             #     return accepted_observations, accepted_rewards, accepted_infos
-            
+
         return [], [], []
 
     def get_intrinsic_values(self, observations):
