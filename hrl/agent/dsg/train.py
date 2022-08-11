@@ -91,6 +91,7 @@ def main():
             parser.add_argument("--n_warmup_iterations", type=int, default=5)
             parser.add_argument("--n_rnd_pretrain_episodes", type=int, default=50)
             parser.add_argument("--consolidation_duration", type=int, default=50)
+            parser.add_argument("--n_run_loop_episodes", type=int, default=int(1e5))
 
             # Params for learning initiation set classifiers
             parser.add_argument("--use_pos_for_init", action="store_true", default=False)
@@ -260,7 +261,7 @@ def main():
 
         with Timer('run_loop'):
             # Full run loop that alternates between expansion and consolidation
-            trainer.run_loop(current_episode + 1, int(1e5), consolidation_duration=args.consolidation_duration)
+            trainer.run_loop(current_episode + 1, args.n_run_loop_episodes, consolidation_duration=args.consolidation_duration)
             print(f"Finished after {(time.time() - t0) / 3600.} hrs")
 
 if __name__ == "__main__":

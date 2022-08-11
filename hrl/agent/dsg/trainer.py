@@ -374,20 +374,24 @@ class DSGTrainer:
 
             while not done and not reset:
                 pos = info['player_x'], info['player_y']
-                event = self.select_goal_salient_event(state, info)
+                with Timer('consolidation->select_goal_salient_event'):
+                    event = self.select_goal_salient_event(state, info)
 
-                self.create_skill_chains_if_needed(state, info, event)
+                with Timer('consolidation->create_skill_chains_if_needed'):
+                    self.create_skill_chains_if_needed(state, info, event)
                 print(f"[Graph Consolidation] From {pos} to {event.target_pos}")
-                state, info, done, reset, reached, traj = self.dsg_agent.run_loop(state=state,
-                                                                            info=info,
-                                                                            goal_salient_event=event,
-                                                                            episode=current_episode,
-                                                                            eval_mode=False)
+                with Timer('consolidation->dsg_agent.run_loop'):
+                    state, info, done, reset, reached, traj = self.dsg_agent.run_loop(state=state,
+                                                                                info=info,
+                                                                                goal_salient_event=event,
+                                                                                episode=current_episode,
+                                                                                eval_mode=False)
 
                 if self.use_empirical_distances:
-                    self.dsg_agent.update_empirical_distance_estimates(
-                        traj, self.salient_events
-                    )
+                    with Timer('consolidation->dsg_agent.update_empirical_distance_estimates'):
+                        self.dsg_agent.update_empirical_distance_estimates(
+                            traj, self.salient_events
+                        )
 
                 if reached:
                     print(f"DSG successfully reached {event}")
@@ -395,11 +399,14 @@ class DSGTrainer:
             assert done or reset, f"{done, reset}"
 
             if current_episode > 0 and current_episode % 10 == 0:
-                self.add_potential_edges_to_graph()
-                [self.dsg_agent.modify_node_connections(o) for o in self.dsc_agent.mature_options]
+                with Timer('consolidation->add_potential_edges_to_graph'):
+                    self.add_potential_edges_to_graph()
+                with Timer('consolidation->modify_node_connections'):
+                    [self.dsg_agent.modify_node_connections(o) for o in self.dsc_agent.mature_options]
 
             if current_episode > 0 and current_episode % 10 == 0:
-                self.delete_potential_nodes_from_graph()
+                with Timer('consolidation->delete_potential_nodes_from_graph'):
+                    self.delete_potential_nodes_from_graph()
 
         return state, info
 
