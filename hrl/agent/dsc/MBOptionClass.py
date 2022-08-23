@@ -8,6 +8,7 @@ from sklearn.svm import OneClassSVM, SVC
 from hrl.agent.dynamics.mpc import MPC
 from hrl.agent.td3.TD3AgentClass import TD3
 
+from timer import Timer
 
 class ModelBasedOption(object):
     def __init__(self, *, name, parent, mdp, global_solver, global_value_learner, buffer_length, global_init,
@@ -122,21 +123,24 @@ class ModelBasedOption(object):
     # Learning Phase Methods
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def get_training_phase(self):
         if self.num_goal_hits < self.gestation_period:
             return "gestation"
         return "initiation_done"
 
+    @Timer.wrap()
     def is_init_true(self, state):
         if self.global_init or self.get_training_phase() == "gestation":
             return True
-        
+
         if self.is_last_option and self.mdp.get_start_state_salient_event()(state):
             return True
 
         features = self.mdp.extract_features_for_initiation_classifier(state)
         return self.optimistic_classifier.predict([features])[0] == 1 or self.pessimistic_is_init_true(state)
 
+    @Timer.wrap()
     def is_term_true(self, state):
         if self.parent is None:
             return self.target_salient_event(state)
@@ -144,6 +148,7 @@ class ModelBasedOption(object):
         # TODO change
         return self.parent.pessimistic_is_init_true(state)
 
+    @Timer.wrap()
     def pessimistic_is_init_true(self, state):
         if self.global_init or self.get_training_phase() == "gestation":
             return True
@@ -162,6 +167,7 @@ class ModelBasedOption(object):
             return 0.8
         return 0.2
 
+    @Timer.wrap()
     def act(self, state, goal):
         """ Epsilon-greedy action selection. """
 
@@ -177,11 +183,13 @@ class ModelBasedOption(object):
         augmented_state = self.get_augmented_state(state, goal)
         return self.solver.act(augmented_state, evaluation_mode=False)
 
+    @Timer.wrap()
     def update_model(self, state, action, reward, next_state, next_done):
         """ Learning update for option model/actor/critic. """
 
         self.solver.step(state, action, reward, next_state, next_done)
 
+    @Timer.wrap()
     def get_goal_for_rollout(self):
         """ Sample goal to pursue for option rollout. """
 
@@ -196,6 +204,7 @@ class ModelBasedOption(object):
 
         return self.extract_goal_dimensions(sampled_goal)
 
+    @Timer.wrap()
     def rollout(self, step_number, rollout_goal=None, eval_mode=False):
         """ Main option control loop. """
 
@@ -257,12 +266,14 @@ class ModelBasedOption(object):
     # Hindsight Experience Replay
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def update_value_function(self, option_transitions, reached_goal, pursued_goal):
         """ Update the goal-conditioned option value function. """
 
         self.experience_replay(option_transitions, pursued_goal)
         self.experience_replay(option_transitions, reached_goal)
 
+    @Timer.wrap()
     def update_value_function_without_reward_func(self, transitions, pursued_goal):
         final_state = transitions[-1][-2]
         reached_goal = self.extract_goal_dimensions(final_state)
@@ -272,9 +283,10 @@ class ModelBasedOption(object):
         if not self.is_term_true(final_state):
             relabeled_unsuccessful_transitions = self.relabel_rewards(transitions, pursued_goal)
             self.experience_replay(relabeled_unsuccessful_transitions, pursued_goal)
-            
+
         self.experience_replay(relabeled_successful_transitions, reached_goal)
 
+    @Timer.wrap()
     def relabel_rewards(self, trajectory, goal):
         def _state_equal(s1, s2):
             sg1 = self.extract_goal_dimensions(s1)
@@ -283,20 +295,22 @@ class ModelBasedOption(object):
             return np.allclose(sg1, sg2)
 
         relabeled_trajectory = []
-        
-        for state, action, _, next_state, _ in trajectory: 
+
+        for state, action, _, next_state, _ in trajectory:
             relabeled_done = _state_equal(next_state, goal) or self.is_term_true(next_state)
             relabeled_reward = 0. if relabeled_done else -1.
             relabeled_trajectory.append((state, action, relabeled_reward, next_state, relabeled_done))
 
         return relabeled_trajectory
 
+    @Timer.wrap()
     def initialize_value_function_with_global_value_function(self):
         self.value_learner.actor.load_state_dict(self.global_value_learner.actor.state_dict())
         self.value_learner.critic.load_state_dict(self.global_value_learner.critic.state_dict())
         self.value_learner.target_actor.load_state_dict(self.global_value_learner.target_actor.state_dict())
         self.value_learner.target_critic.load_state_dict(self.global_value_learner.target_critic.state_dict())
 
+    @Timer.wrap()
     def extract_goal_dimensions(self, goal):
         assert isinstance(goal, np.ndarray)
         goal_features = goal
@@ -304,12 +318,14 @@ class ModelBasedOption(object):
             return goal_features[:2]
         raise NotImplementedError(f"{self.mdp.env_name}")
 
+    @Timer.wrap()
     def get_augmented_state(self, state, goal):
         assert goal is not None and isinstance(goal, np.ndarray), f"goal is {goal}"
 
         goal_position = self.extract_goal_dimensions(goal)
         return np.concatenate((state, goal_position))
 
+    @Timer.wrap()
     def experience_replay(self, trajectory, goal_state):
         for state, action, reward, next_state, next_done in trajectory:
             augmented_state = self.get_augmented_state(state, goal=goal_state)
@@ -323,6 +339,7 @@ class ModelBasedOption(object):
                 assert self.global_value_learner is not None
                 self.global_value_learner.step(augmented_state, action, reward, augmented_next_state, next_done)
 
+    @Timer.wrap()
     def value_function(self, states, goals):
         assert isinstance(states, np.ndarray)
         assert isinstance(goals, np.ndarray)
@@ -347,6 +364,7 @@ class ModelBasedOption(object):
     # Learning Initiation Classifiers
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def get_first_state_in_classifier(self, trajectory, classifier_type="pessimistic"):
         """ Extract the first state in the trajectory that is inside the initiation classifier. """
 
@@ -357,6 +375,7 @@ class ModelBasedOption(object):
                 return state
         return None
 
+    @Timer.wrap()
     def sample_from_termination_region(self):
         pessimistic_samples = self.get_states_inside_pessimistic_classifier_region()
 
@@ -367,6 +386,7 @@ class ModelBasedOption(object):
         sample = random.choice(self.effect_set)
         return self.mdp.extract_features_for_initiation_classifier(sample)
 
+    @Timer.wrap()
     def sample_from_initiation_region_fast(self):
         """ Sample from the pessimistic initiation classifier. """
         num_tries = 0
@@ -378,6 +398,7 @@ class ModelBasedOption(object):
             sampled_state = self.get_first_state_in_classifier(sampled_trajectory)
         return sampled_state
 
+    @Timer.wrap()
     def sample_from_initiation_region_fast_and_epsilon(self):
         """ Sample from the pessimistic initiation classifier. """
         def compile_states(s):
@@ -414,6 +435,7 @@ class ModelBasedOption(object):
 
         return self.sample_from_initiation_region_fast()
 
+    @Timer.wrap()
     def derive_positive_and_negative_examples(self, visited_states):
         start_state = visited_states[0]
         final_state = visited_states[-1]
@@ -425,29 +447,34 @@ class ModelBasedOption(object):
             negative_examples = [start_state]
             self.negative_examples.append(negative_examples)
 
+    @Timer.wrap()
     def should_change_negative_examples(self):
         should_change = []
         for negative_example in self.negative_examples:
             should_change += [self.does_model_rollout_reach_goal(negative_example[0])]
         return should_change
 
+    @Timer.wrap()
     def does_model_rollout_reach_goal(self, state):
         sampled_goal = self.get_goal_for_rollout()
         final_states, actions, costs = self.solver.simulate(state, sampled_goal, num_rollouts=14000, num_steps=self.timeout)
         farthest_position = final_states[:, :2].max(axis=0)
         return self.is_term_true(farthest_position)
 
+    @Timer.wrap()
     def fit_initiation_classifier(self):
         if len(self.negative_examples) > 0 and len(self.positive_examples) > 0:
             self.train_two_class_classifier()
         elif len(self.positive_examples) > 0:
             self.train_one_class_svm()
 
+    @Timer.wrap()
     def construct_feature_matrix(self, examples):
         states = list(itertools.chain.from_iterable(examples))
         positions = [self.mdp.extract_features_for_initiation_classifier(state) for state in states]
         return np.array(positions)
 
+    @Timer.wrap()
     def train_one_class_svm(self, nu=0.1):  # TODO: Implement gamma="auto" for thundersvm
         positive_feature_matrix = self.construct_feature_matrix(self.positive_examples)
         self.pessimistic_classifier = OneClassSVM(kernel="rbf", nu=nu, gamma="auto")
@@ -456,6 +483,7 @@ class ModelBasedOption(object):
         self.optimistic_classifier = OneClassSVM(kernel="rbf", nu=nu/10., gamma="auto")
         self.optimistic_classifier.fit(positive_feature_matrix)
 
+    @Timer.wrap()
     def train_two_class_classifier(self, nu=0.1):
         positive_feature_matrix = self.construct_feature_matrix(self.positive_examples)
         negative_feature_matrix = self.construct_feature_matrix(self.negative_examples)
@@ -480,6 +508,7 @@ class ModelBasedOption(object):
             self.pessimistic_classifier = OneClassSVM(kernel="rbf", nu=nu, gamma="auto")
             self.pessimistic_classifier.fit(positive_training_examples)
 
+    @Timer.wrap()
     def is_valid_init_data(self, state_buffer):
 
         # Use the data if it could complete the chain
@@ -513,6 +542,7 @@ class ModelBasedOption(object):
     # Distance functions
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def get_states_inside_pessimistic_classifier_region(self):
         if self.pessimistic_classifier is not None:
             point_array = self.construct_feature_matrix(self.positive_examples)
@@ -521,6 +551,7 @@ class ModelBasedOption(object):
             return positive_point_array
         return []
 
+    @Timer.wrap()
     def distance_to_state(self, state, metric="euclidean"):
         """ Compute the distance between the current option and the input `state`. """
 
@@ -529,6 +560,7 @@ class ModelBasedOption(object):
             return self._euclidean_distance_to_state(state)
         return self._value_distance_to_state(state)
 
+    @Timer.wrap()
     def _euclidean_distance_to_state(self, state):
         point = self.mdp.get_position(state)
 
@@ -540,6 +572,7 @@ class ModelBasedOption(object):
         distances = distance.cdist(point[None, :], positive_point_array)
         return np.median(distances)
 
+    @Timer.wrap()
     def _value_distance_to_state(self, state):
         features = state.features() if not isinstance(state, np.ndarray) else state
         goals = self.get_states_inside_pessimistic_classifier_region()

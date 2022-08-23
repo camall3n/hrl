@@ -11,6 +11,7 @@ from sklearn.svm import OneClassSVM, SVC
 from hrl.agent.dsc.datastructures import TrainingExample
 from hrl.agent.dsc.classifier.init_classifier import InitiationClassifier
 
+from timer import Timer
 
 class Flatten(nn.Module):
     def forward(self, input):
@@ -58,7 +59,7 @@ class FixedConvFeatureExtractor(nn.Module):
 
 
 class FixedConvInitiationClassifier(InitiationClassifier):
-    """ Use a randomly initialized conv network as a feature extractor. 
+    """ Use a randomly initialized conv network as a feature extractor.
     Combine with our classic 2-class and 1-class SVMs for final classification. """
 
     def __init__(self, device, gamma='scale', nu=0.1, maxlen=100):
@@ -76,6 +77,7 @@ class FixedConvInitiationClassifier(InitiationClassifier):
     def expand_single_state(self, state):
         return state[None, None, ...]
 
+    @Timer.wrap()
     def optimistic_predict(self, state):
         assert isinstance(self.optimistic_classifier, (OneClassSVM, SVC))
         features = self.feature_extractor(
@@ -83,29 +85,34 @@ class FixedConvInitiationClassifier(InitiationClassifier):
         )
         return self.optimistic_classifier.predict(features)[0] == 1
 
+    @Timer.wrap()
     def pessimistic_predict(self, state):
         assert isinstance(self.pessimistic_classifier, (OneClassSVM, SVC))
         features = self.feature_extractor(
             self.expand_single_state(state)
         )
         return self.pessimistic_classifier.predict(features)[0] == 1
-    
+
+    @Timer.wrap()
     def is_initialized(self):
         return self.optimistic_classifier is not None and \
             self.pessimistic_classifier is not None
 
+    @Timer.wrap()
     def add_positive_examples(self, images, positions):
         assert len(images) == len(positions)
 
         positive_examples = [TrainingExample(img, pos) for img, pos in zip(images, positions)]
         self.positive_examples.append(positive_examples)
 
+    @Timer.wrap()
     def add_negative_examples(self, images, positions):
         assert len(images) == len(positions)
 
         negative_examples = [TrainingExample(img, pos) for img, pos in zip(images, positions)]
         self.negative_examples.append(negative_examples)
 
+    @Timer.wrap()
     def construct_feature_matrix(self, examples):
         examples = list(itertools.chain.from_iterable(examples))
         observations = np.array([example.obs._frames[-1] for example in examples])
@@ -120,12 +127,14 @@ class FixedConvInitiationClassifier(InitiationClassifier):
         positions = [example.pos for example in examples]
         return np.array(positions)
 
+    @Timer.wrap()
     def fit_initiation_classifier(self):
         if len(self.negative_examples) > 0 and len(self.positive_examples) > 0:
             self.train_two_class_classifier()
         elif len(self.positive_examples) > 0:
             self.train_one_class_svm()
 
+    @Timer.wrap()
     def train_one_class_svm(self):
         positive_feature_matrix = self.construct_feature_matrix(self.positive_examples)
         self.pessimistic_classifier = OneClassSVM(kernel="rbf", nu=self.nu, gamma=self.gamma)
@@ -134,6 +143,7 @@ class FixedConvInitiationClassifier(InitiationClassifier):
         self.optimistic_classifier = OneClassSVM(kernel="rbf", nu=self.nu/10., gamma=self.gamma)
         self.optimistic_classifier.fit(positive_feature_matrix)
 
+    @Timer.wrap()
     def train_two_class_classifier(self):
         positive_feature_matrix = self.construct_feature_matrix(self.positive_examples)
         negative_feature_matrix = self.construct_feature_matrix(self.negative_examples)
@@ -160,6 +170,7 @@ class FixedConvInitiationClassifier(InitiationClassifier):
             print(f"Fitting pessimistic clasifier on input shape {positive_training_examples.shape}")
             self.pessimistic_classifier.fit(positive_training_examples)
 
+    @Timer.wrap()
     def sample(self):
         """ Sample from the pessimistic initiation classifier. """
         num_tries = 0
@@ -171,6 +182,7 @@ class FixedConvInitiationClassifier(InitiationClassifier):
             sampled_state = self.get_first_state_in_classifier(sampled_trajectory)
         return sampled_state
 
+    @Timer.wrap()
     def get_first_state_in_classifier(self, trajectory):
         """ Extract the first state in the trajectory that is inside the initiation classifier. """
         for state in trajectory:
@@ -184,7 +196,7 @@ class FixedConvInitiationClassifier(InitiationClassifier):
         if not self.is_initialized():
             return
 
-        if len(self.positive_examples) > 0:        
+        if len(self.positive_examples) > 0:
             x_positive = self.construct_feature_matrix(self.positive_examples)
             optimistic_positive_predictions = self.optimistic_classifier.predict(x_positive) == 1
             pessimistic_positive_predictions = self.pessimistic_classifier.predict(x_positive) == 1
@@ -202,12 +214,12 @@ class FixedConvInitiationClassifier(InitiationClassifier):
             plt.scatter(positive_positions[:, 0], positive_positions[:, 1],
                         c=optimistic_positive_predictions, marker="+", label="positive data")
             plt.clim(0, 1)
-        
+
         if len(self.negative_examples) > 0:
             plt.scatter(negative_positions[:, 0], negative_positions[:, 1],
                         c=optimistic_negative_predictions, marker="o", label="negative data")
             plt.clim(0, 1)
-        
+
         plt.colorbar()
         plt.legend()
         plt.title("Optimistic classifier")
@@ -220,7 +232,7 @@ class FixedConvInitiationClassifier(InitiationClassifier):
             plt.clim(0, 1)
 
         if len(self.negative_examples) > 0:
-            plt.scatter(negative_positions[:, 0], negative_positions[:, 1], 
+            plt.scatter(negative_positions[:, 0], negative_positions[:, 1],
                         c=pessimistic_negative_predictions, marker="o", label="negative data")
             plt.clim(0, 1)
 
@@ -231,4 +243,3 @@ class FixedConvInitiationClassifier(InitiationClassifier):
         plt.savefig(f"plots/{experiment_name}/{seed}/initiation_set_plots/{option_name}_init_clf_episode_{episode}.png")
         plt.close()
 
-    

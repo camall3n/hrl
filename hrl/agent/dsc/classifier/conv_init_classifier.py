@@ -9,11 +9,12 @@ from hrl.agent.dsc.datastructures import TrainingExample
 from hrl.agent.dsc.classifier.conv_classifier import ConvClassifier
 from hrl.agent.dsc.classifier.init_classifier import InitiationClassifier
 
+from timer import Timer
 
 class ConvInitiationClassifier(InitiationClassifier):
     """ Initiation classifier where we train one CNN and use different optimistic/pessimistic thresholds."""
     def __init__(self,
-                 device, 
+                 device,
                  optimistic_threshold=0.50,
                  pessimistic_threshold=0.75,
                  n_input_channels=1,
@@ -28,13 +29,14 @@ class ConvInitiationClassifier(InitiationClassifier):
         self.classifier = ConvClassifier(device, None, n_input_channels)
         optimistic_classifier = self.classifier
         pessimistic_classifier = self.classifier
-        
+
         super().__init__(optimistic_classifier, pessimistic_classifier)
 
     def is_initialized(self):
         return self.optimistic_classifier.is_trained and \
                self.pessimistic_classifier.is_trained
 
+    @Timer.wrap()
     @torch.no_grad()
     def batched_optimistic_predict(self, X):
         assert isinstance(self.optimistic_classifier, ConvClassifier)
@@ -44,6 +46,7 @@ class ConvInitiationClassifier(InitiationClassifier):
         optimistic_predictions = self.optimistic_classifier.predict(X, threshold=0.5)
         return optimistic_predictions.cpu().numpy()
 
+    @Timer.wrap()
     @torch.no_grad()
     def batched_pessimistic_predict(self, X):
         assert isinstance(self.pessimistic_classifier, ConvClassifier)
@@ -53,6 +56,7 @@ class ConvInitiationClassifier(InitiationClassifier):
         pessimistic_predictions = self.pessimistic_classifier.predict(X, threshold=0.75)
         return pessimistic_predictions.cpu().numpy()
 
+    @Timer.wrap()
     def optimistic_predict(self, state):
         assert isinstance(state, np.ndarray)
         assert isinstance(self.optimistic_classifier, ConvClassifier)
@@ -61,6 +65,7 @@ class ConvInitiationClassifier(InitiationClassifier):
         label = self.optimistic_classifier.predict(features, threshold=0.5) == 1
         return label.cpu().numpy()
 
+    @Timer.wrap()
     def pessimistic_predict(self, state):
         assert isinstance(state, np.ndarray)
         assert isinstance(self.pessimistic_classifier, ConvClassifier)
@@ -69,11 +74,12 @@ class ConvInitiationClassifier(InitiationClassifier):
         label = self.pessimistic_classifier.predict(features, threshold=0.75) == 1
         return label.cpu().numpy()
 
+    @Timer.wrap()
     def get_false_positive_rate(self):
-        """ Fraction of the negative data that is classified as positive. """ 
+        """ Fraction of the negative data that is classified as positive. """
 
         negative_examples = self.construct_feature_matrix(self.negative_examples)
-        
+
         if len(negative_examples) > 0:
             optimistic_pred = self.optimistic_classifier.predict(negative_examples, threshold=0.5).cpu().numpy()
             pessimistic_pred = self.pessimistic_classifier.predict(negative_examples, threshold=0.75).cpu().numpy()
@@ -83,35 +89,41 @@ class ConvInitiationClassifier(InitiationClassifier):
             )
 
         return np.array([1., 1.])
-    
+
+    @Timer.wrap()
     def add_positive_examples(self, observations, infos):
         assert len(observations) == len(infos)
 
         positive_examples = [TrainingExample(img, info) for img, info in zip(observations, infos)]
         self.positive_examples.append(positive_examples)
 
+    @Timer.wrap()
     def add_negative_examples(self, observations, infos):
         assert len(observations) == len(infos)
 
         negative_examples = [TrainingExample(img, info) for img, info in zip(observations, infos)]
         self.negative_examples.append(negative_examples)
 
+    @Timer.wrap()
     def construct_feature_matrix(self, examples):
         examples = list(itertools.chain.from_iterable(examples))
         observations = np.array([example.obs._frames[-1] for example in examples])
         obs_tensor = torch.as_tensor(observations).float().to(self.device)
         return obs_tensor
 
+    @Timer.wrap()
     @staticmethod
     def extract_positions(examples):
         examples = itertools.chain.from_iterable(examples)
         positions = [example.pos for example in examples]
         return np.array(positions)
 
+    @Timer.wrap()
     def fit_initiation_classifier(self):
         if len(self.negative_examples) > 0 and len(self.positive_examples) > 0:
             self.train_two_class_classifier()
-    
+
+    @Timer.wrap()
     def train_two_class_classifier(self):
         positive_feature_matrix = self.construct_feature_matrix(self.positive_examples)
         negative_feature_matrix = self.construct_feature_matrix(self.negative_examples)
@@ -136,7 +148,7 @@ class ConvInitiationClassifier(InitiationClassifier):
         """ Plot the predictions on the traininng data. """
         if not self.is_initialized():
             return
-        
+
         x_positive = self.construct_feature_matrix(self.positive_examples)
         x_negative = self.construct_feature_matrix(self.negative_examples)
 
@@ -170,13 +182,13 @@ class ConvInitiationClassifier(InitiationClassifier):
         plt.scatter(positive_positions[:, 0], positive_positions[:, 1],
                     c=pessimistic_positive_predictions, marker="+", label="positive data")
         plt.clim(0, 1)
-        plt.scatter(negative_positions[:, 0], negative_positions[:, 1], 
+        plt.scatter(negative_positions[:, 0], negative_positions[:, 1],
                     c=pessimistic_negative_predictions, marker="o", label="negative data")
         plt.clim(0, 1)
         plt.colorbar()
         plt.legend()
         plt.title("Pessimistic classifier")
-        
+
         if goal:
             plt.suptitle(f"Targeting {goal}")
 

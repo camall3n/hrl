@@ -92,6 +92,7 @@ class DSGTrainer:
     # Run loops
     # ---------------------------------------------------
 
+    @Timer.wrap()
     def should_expand(self, episode, method="fraction"):
         assert method in ("fraction", "frequency"), method
 
@@ -114,6 +115,7 @@ class DSGTrainer:
 
         return (n_total <= 4) or (n_connected / n_total) > self.expansion_fraction_threshold
 
+    @Timer.wrap()
     def run_loop(self, start_episode, num_episodes, consolidation_duration=50):
 
         # Each iteration contains N episodes of expansion or M episodes of consolidation
@@ -123,23 +125,20 @@ class DSGTrainer:
         while episode < start_episode + num_episodes:
 
             if self.should_expand(episode) and self.graph_mode == "consolidation":
-                with Timer('graph_expansion'):
-                    self.graph_expansion_run_loop(episode, self.expansion_duration)
+                self.graph_expansion_run_loop(episode, self.expansion_duration)
                 episode += self.expansion_duration
             elif len(self.salient_events) > 0:
-                with Timer('graph_consolidation'):
-                    self.graph_consolidation_run_loop(episode, duration=consolidation_duration)
+                self.graph_consolidation_run_loop(episode, duration=consolidation_duration)
                 episode += consolidation_duration
             else:
                 ipdb.set_trace()
 
             if len(self.predefined_events) > 0:
-                with Timer('dist_metric_accuracy'):
-                    self.distance_classification_accuracies.append(
-                        self.dsg_agent.evaluate_distance_metric_accuracy(
-                        self.salient_events, self.dsg_agent.distance_metric
-                        )
+                self.distance_classification_accuracies.append(
+                    self.dsg_agent.evaluate_distance_metric_accuracy(
+                    self.salient_events, self.dsg_agent.distance_metric
                     )
+                )
 
             with Timer('log_gc'):
                 t0 = time.time()
@@ -172,6 +171,7 @@ class DSGTrainer:
 
             iteration += 1
 
+    @Timer.wrap()
     def graph_expansion_run_loop(self, start_episode, num_episodes):
         exploration_inits = []
         exploration_actions = []
@@ -255,6 +255,7 @@ class DSGTrainer:
                 self.salient_events
             )
 
+    @Timer.wrap()
     def exploration_rollout(self, state, episode):
         assert isinstance(state, atari_wrappers.LazyFrames)
 
@@ -270,6 +271,7 @@ class DSGTrainer:
 
         return initial_state, observations, actions, rewards, visited_infos
 
+    @Timer.wrap()
     def dopamine2pfrl(self, init_state, observations):
         """ Convert a dopamine trajectory into one that can be consumed by pfrl. """
 
@@ -286,6 +288,7 @@ class DSGTrainer:
 
         return pfrl_observations
 
+    @Timer.wrap()
     def create_exploration_trajectory(self, observations, actions, rewards, infos, new_events):
         exploration_trajectory = []
         start_observations = observations[:-1]
@@ -307,6 +310,7 @@ class DSGTrainer:
 
         return exploration_trajectory
 
+    @Timer.wrap()
     def off_policy_update(self, exploration_trajectory):
         """ Take successful RND trajectory and make an off-policy update to the exploitation policy. """
         final_transition = exploration_trajectory[-1]
@@ -315,6 +319,7 @@ class DSGTrainer:
         relabeled_trajectory = self.dsc_agent.global_option.positive_relabel(exploration_trajectory)
         self.dsc_agent.global_option.experience_replay(relabeled_trajectory, reached_goal)
 
+    @Timer.wrap()
     def log_rnd_progress(self, intrinsic_subgoals, extrinsic_subgoals, added_events, episode):
 
         with open(self.rnd_log_filename, "wb+") as f:
@@ -361,6 +366,7 @@ class DSGTrainer:
 
         # self.rnd_agent.plot_value(episode=episode)
 
+    @Timer.wrap()
     def graph_consolidation_run_loop(self, episode, duration):
 
         self.graph_mode = "consolidation"
@@ -374,24 +380,20 @@ class DSGTrainer:
 
             while not done and not reset:
                 pos = info['player_x'], info['player_y']
-                with Timer('consolidation->select_goal_salient_event'):
-                    event = self.select_goal_salient_event(state, info)
+                event = self.select_goal_salient_event(state, info)
 
-                with Timer('consolidation->create_skill_chains_if_needed'):
-                    self.create_skill_chains_if_needed(state, info, event)
+                self.create_skill_chains_if_needed(state, info, event)
                 print(f"[Graph Consolidation] From {pos} to {event.target_pos}")
-                with Timer('consolidation->dsg_agent.run_loop'):
-                    state, info, done, reset, reached, traj = self.dsg_agent.run_loop(state=state,
-                                                                                info=info,
-                                                                                goal_salient_event=event,
-                                                                                episode=current_episode,
-                                                                                eval_mode=False)
+                state, info, done, reset, reached, traj = self.dsg_agent.run_loop(state=state,
+                                                                            info=info,
+                                                                            goal_salient_event=event,
+                                                                            episode=current_episode,
+                                                                            eval_mode=False)
 
                 if self.use_empirical_distances:
-                    with Timer('consolidation->dsg_agent.update_empirical_distance_estimates'):
-                        self.dsg_agent.update_empirical_distance_estimates(
-                            traj, self.salient_events
-                        )
+                    self.dsg_agent.update_empirical_distance_estimates(
+                        traj, self.salient_events
+                    )
 
                 if reached:
                     print(f"DSG successfully reached {event}")
@@ -399,14 +401,11 @@ class DSGTrainer:
             assert done or reset, f"{done, reset}"
 
             if current_episode > 0 and current_episode % 10 == 0:
-                with Timer('consolidation->add_potential_edges_to_graph'):
-                    self.add_potential_edges_to_graph()
-                with Timer('consolidation->modify_node_connections'):
-                    [self.dsg_agent.modify_node_connections(o) for o in self.dsc_agent.mature_options]
+                self.add_potential_edges_to_graph()
+                [self.dsg_agent.modify_node_connections(o) for o in self.dsc_agent.mature_options]
 
             if current_episode > 0 and current_episode % 10 == 0:
-                with Timer('consolidation->delete_potential_nodes_from_graph'):
-                    self.delete_potential_nodes_from_graph()
+                self.delete_potential_nodes_from_graph()
 
         return state, info
 
@@ -414,6 +413,7 @@ class DSGTrainer:
     # Salient Event Selection
     # ---------------------------------------------------
 
+    @Timer.wrap()
     def select_goal_salient_event(self, state, info):
         """ Select goal node to target during graph consolidation. """
         if random.random() > self.goal_selection_epsilon:
@@ -456,6 +456,7 @@ class DSGTrainer:
         print(f"[Random] DSG selected event {selected_event}")
         return selected_event
 
+    @Timer.wrap()
     def _randomly_select_salient_event(self, state, info):
         num_tries = 0
         target_event = None
@@ -474,12 +475,14 @@ class DSGTrainer:
 
         return target_event
 
+    @Timer.wrap()
     def _select_random_unconnected_salient_event(self, state, info):
         unconnected_events = self._get_unconnected_events(state, info)
 
         if len(unconnected_events) > 0:
             return random.choice(unconnected_events)
 
+    @Timer.wrap()
     def _select_closest_unconnected_salient_event(self, state, info):
         unconnected_events = self._get_unconnected_events(state, info)
         current_events = self.get_corresponding_salient_events(state, info)
@@ -493,6 +496,7 @@ class DSGTrainer:
         if closest_pair is not None:
             return closest_pair[1]
 
+    @Timer.wrap()
     def _select_boltzmann_closest_salient_event(self, state, info):
         current_events = self.get_corresponding_salient_events(state, info)
         unconnected_events = self._get_unconnected_events(state, info)
@@ -523,6 +527,7 @@ class DSGTrainer:
 
             return selected_event
 
+    @Timer.wrap()
     def _select_competence_progress_salient_event(self, state, info, select_among):
         """ Use competence progress to determine which salient event to target next. """
         # TODO: Currently this is agnostic to the start state of the learning curve
@@ -563,11 +568,13 @@ class DSGTrainer:
         if len(candidate_events) == 1:
             return candidate_events[0]
 
+    @Timer.wrap()
     def _get_unconnected_events(self, state, info):
         candidate_events = [event for event in self.salient_events if not event(info)]
         unconnected_events = self.dsg_agent.planner.get_unconnected_nodes(state, info, candidate_events)
         return unconnected_events
 
+    @Timer.wrap()
     def _get_connected_events(self, state, info):
         candidate_events = [event for event in self.salient_events if not event(info)]
         connected_events = [event for event in candidate_events if self.dsg_agent.planner.does_path_exist(state, info, event)]
@@ -577,6 +584,7 @@ class DSGTrainer:
     # Manage skill chains
     # ---------------------------------------------------
 
+    @Timer.wrap()
     def create_skill_chains_if_needed(self, state, info, goal_salient_event):
         current_salient_events = self.get_corresponding_salient_events(state, info)
 
@@ -597,6 +605,7 @@ class DSGTrainer:
                     print(f"[DeepSkillGraphsAgent] Creating chain from {init} -> {target}")
                     self.dsc_agent.create_new_chain(init_event=init, target_event=target)
 
+    @Timer.wrap()
     def is_path_under_construction(self, state, info, start_event, goal_event):
         assert isinstance(state, atari_wrappers.LazyFrames), f"{type(state)}"
         assert isinstance(start_event, SalientEvent), f"{type(start_event)}"
@@ -612,6 +621,7 @@ class DSGTrainer:
                                   for event in current_salient_events])
         return under_construction
 
+    @Timer.wrap()
     def does_path_exist_in_optimistic_graph(self, node1, node2):
 
         # Create a lightweight copy of the plan-graph
@@ -634,6 +644,7 @@ class DSGTrainer:
     # Manage salient events
     # ---------------------------------------------------
 
+    @Timer.wrap()
     def get_corresponding_salient_events(self, state, info):
         # TODO: Need this if we remove init_event from salient_events
         # salient_events = [self.init_salient_event] + self.salient_events
@@ -643,11 +654,13 @@ class DSGTrainer:
     # Manage skill graph
     # ---------------------------------------------------
 
+    @Timer.wrap()
     def add_potential_edges_to_graph(self):
         t0 = time.time()
         [self.dsg_agent.add_potential_edges(o) for o in self.dsg_agent.planner.option_nodes]
         print(f"Took {time.time() - t0}s to add potential edges.")
 
+    @Timer.wrap()
     def delete_potential_nodes_from_graph(self):
         """ Delete nodes that are impossible to re-trigger. """
 
@@ -703,6 +716,7 @@ class DSGTrainer:
 
         return atari_wrappers.LazyFrames(frames, stack_axis=0)
 
+    @Timer.wrap()
     def extract_subgoals(self, observations, infos, extrinsic_rewards):
 
         def extract_subgoals_from_ext_rewards(obs, info, rewards):
@@ -725,6 +739,7 @@ class DSGTrainer:
 
         return subgoals1, subgoals2
 
+    @Timer.wrap()
     def score_exploration_trajectory(self, observations, rewards, infos):
         """ Given a dopamine trajectory, return the following:
         1. The original trajectory
@@ -761,6 +776,7 @@ class DSGTrainer:
 
         return -np.inf, [], []
 
+    @Timer.wrap()
     def new_subgoal_extractor(self, observations, rewards, infos):
         """ Given unfiltered dopamine trajectories (represented as lists of lists),
         return the following:
@@ -794,6 +810,7 @@ class DSGTrainer:
         return intrinsic_triples, extrinsic_triples, \
                [best_intrinsic_trajectory_idx], extrinsic_trajectory_idx
 
+    @Timer.wrap()
     def filter_subgoals_based_on_sparsity_cond(self, sir_triples, trajectory_idx):
         filtered_triples = []
         filtered_trajectory_idx = []
@@ -810,6 +827,7 @@ class DSGTrainer:
                 filtered_trajectory_idx.append(idx)
         return filtered_triples, filtered_trajectory_idx
 
+    @Timer.wrap()
     def should_reject_new_event(self, info, regions):
         def get_satisfied_regions(i):
             return [region for region in regions if regions[region](i)]
@@ -832,6 +850,7 @@ class DSGTrainer:
         satisfied_region = new_satisfied_regions[0]
         return satisfied_region in itertools.chain.from_iterable(old_satisfied_regions)
 
+    @Timer.wrap()
     def filter_exploration_trajectory(self, observations, rewards, infos):
         """ Given some observations, return the ones that pass our filtering rules. """
 
@@ -918,10 +937,12 @@ class DSGTrainer:
 
         return [], [], []
 
+    @Timer.wrap()
     def get_intrinsic_values(self, observations):
         assert isinstance(observations, np.ndarray)
         return self.rnd_agent.value_function(observations)
 
+    @Timer.wrap()
     def convert_discovered_goals_to_salient_events(self, discovered_goals):
         """ Convert a list of discovered goal states to salient events. """
         added_events = []
@@ -936,6 +957,7 @@ class DSGTrainer:
 
         return added_events
 
+    @Timer.wrap()
     def add_salient_event(self, new_event):
         print("[DSGTrainer] Adding new SalientEvent ", new_event)
         self.salient_events.append(new_event)

@@ -20,6 +20,7 @@ from .classifier.single_conv_init_classifier import SingleConvInitiationClassifi
 from .classifier.double_conv_init_classifier import DoubleConvInitiationClassifier
 from .classifier.conv_init_classifier import ConvInitiationClassifier
 
+from timer import Timer
 
 class ModelFreeOption(object):
     def __init__(self, *, name, option_idx, parent, env, global_solver, global_init,
@@ -44,12 +45,12 @@ class ModelFreeOption(object):
         self.classifier_type = classifier_type
         self.noisy_net_sigma = noisy_net_sigma
         self.use_hacky_init = use_hacky_init
-        
+
         self.use_oracle_rf = use_oracle_rf
         self.use_rf_on_pos_traj = use_rf_on_pos_traj
         self.use_rf_on_neg_traj = use_rf_on_neg_traj
         self.replay_original_goal_on_pos = replay_original_goal_on_pos
-        
+
         self.global_init = global_init
         self.buffer_length = buffer_length
 
@@ -80,6 +81,7 @@ class ModelFreeOption(object):
         self.is_last_option = self.option_idx == max_num_options
         self.expansion_classifier = None
 
+    @Timer.wrap()
     def _get_model_free_solver(self):
         if self.global_init:
             print(f"Creating rainbow with sigma={self.noisy_net_sigma}")
@@ -99,6 +101,7 @@ class ModelFreeOption(object):
 
         return self.global_solver
 
+    @Timer.wrap()
     def _get_initiation_classifier(self):
         if self.use_pos_for_init:
             return PositionInitiationClassifier()
@@ -136,15 +139,17 @@ class ModelFreeOption(object):
     # Learning Phase Methods
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def get_training_phase(self):
         if self.num_goal_hits < self.gestation_period:
             return "gestation"
         return "initiation_done"
 
+    @Timer.wrap()
     def is_init_true(self, state, info):
         if self.global_init or self.get_training_phase() == "gestation":
             return True
-        
+
         if self.is_last_option and self.init_salient_event(info):
             return True
 
@@ -152,10 +157,11 @@ class ModelFreeOption(object):
             return True
 
         x = self.extract_init_features(state, info)
-        
+
         return self.initiation_classifier.optimistic_predict(x) \
             or self.pessimistic_is_init_true(state, info)
 
+    @Timer.wrap()
     def pessimistic_is_init_true(self, state, info):
         if self.global_init or self.get_training_phase() == "gestation":
             return True
@@ -164,7 +170,7 @@ class ModelFreeOption(object):
             return False
 
         x = self.extract_init_features(state, info)
-        
+
         classifier_decision = self.initiation_classifier.pessimistic_predict(x)
         expansion_decision = self.expansion_classifier(info) if self.expansion_classifier else False
         combined_decision = classifier_decision or expansion_decision
@@ -176,6 +182,7 @@ class ModelFreeOption(object):
 
         return combined_decision
 
+    @Timer.wrap()
     def is_term_true(self, state, info):
 
         if self.failure_condition(info, check_falling=True):
@@ -186,22 +193,25 @@ class ModelFreeOption(object):
 
         return self.parent.pessimistic_is_init_true(state,  info)
 
+    @Timer.wrap()
     def extract_init_features(self, state, info):
         if self.use_pos_for_init:
             return np.array([info["player_x"], info["player_y"]])
-        
+
         if isinstance(state, atari_wrappers.LazyFrames):
             return state._frames[-1].squeeze()
 
         if isinstance(state, np.ndarray):
             return state.squeeze()
-    
+
+    @Timer.wrap()
     def failure_condition(self, info, check_falling=False):
         targets_start_state = self.target_salient_event.target_pos[0] == 77.\
                           and self.target_salient_event.target_pos[1] == 235.
         death_cond = info['uncontrollable'] if check_falling else info['dead']
         return death_cond and not targets_start_state
-        
+
+    @Timer.wrap()
     def get_distance_to_positive_examples(self, state, info):
         ipdb.set_trace()
         pos = utils.info_to_pos(info)
@@ -210,6 +220,7 @@ class ModelFreeOption(object):
         distances = cdist(pos[None, ...], positive_positions)
         return distances
 
+    @Timer.wrap()
     def expand_initiation_classifier(self, classifier):  # TODO: add support
         print(f"Expanding {self.name}'s pessimistic classifier to include {classifier}")
         self.expansion_classifier = classifier
@@ -218,6 +229,7 @@ class ModelFreeOption(object):
     # Control Loop Methods
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def local_rf(self, state, info, goal_pos, salient_event=None):
         if self.use_oracle_rf or self.use_rf_on_pos_traj:
             pos = utils.info_to_pos(info)
@@ -231,28 +243,31 @@ class ModelFreeOption(object):
         reward = float(reached)
         return reward, reached
 
+    @Timer.wrap()
     def rf(self, pos, goal_pos):
         """ Oracle position based reward function. """
         def is_close(pos1, pos2, tol):
             return abs(pos1[0] - pos2[0]) <= tol and \
                    abs(pos1[1] - pos2[1]) <= tol
-        
+
         reached = is_close(pos, goal_pos, tol=2.)
         reward = float(reached)
-        
+
         return reward, reached
 
+    @Timer.wrap()
     def act(self, state, goal):
         assert isinstance(self.solver, Rainbow), f"{type(self.solver)}"
         augmented_state = self.solver.get_augmented_state(state, goal)
         return self.solver.act(augmented_state)
 
+    @Timer.wrap()
     def get_goal_for_rollout(self):
         """ Sample goal to pursue for option rollout. """
 
         if self.parent is None and self.target_salient_event is not None:
             assert isinstance(self.target_salient_event, SalientEvent)
-            
+
             if self.use_oracle_rf or self.use_rf_on_pos_traj:
                 return self.target_salient_event.target_obs, \
                        self.target_salient_event.target_pos
@@ -275,13 +290,14 @@ class ModelFreeOption(object):
         assert isinstance(self.target_salient_event, SalientEvent)
         return self.target_salient_event.target_obs, self.target_salient_event.target_info
 
+    @Timer.wrap()
     def rollout(self, start_state, info, dsc_goal_salient_event, eval_mode=False):
         """ Main option control loop. """
 
         done = False
         reset = False
         reached = False
-        
+
         num_steps = 0
         total_reward = 0
         option_transitions = []
@@ -291,13 +307,13 @@ class ModelFreeOption(object):
         visited_infos = [info]
         visited_states = [start_state]
 
-        goal, goal_info = (dsc_goal_salient_event.target_obs, dsc_goal_salient_event.target_info) 
-        
+        goal, goal_info = (dsc_goal_salient_event.target_obs, dsc_goal_salient_event.target_info)
+
         if not self.global_init:
             goal, goal_info = self.get_goal_for_rollout()
 
         clf = lambda s, i: self.local_rf(s, i, utils.info_to_pos(goal_info), dsc_goal_salient_event)[1]
-        
+
         print(f"Rolling out {self.name}, from {utils.info_to_pos(info)} targeting {goal_info}")
 
         while not done and not reached and not reset and num_steps < self.timeout:
@@ -305,7 +321,7 @@ class ModelFreeOption(object):
             action = self.act(state, goal)
             next_state, reward, done, info = self.env.step(action, clf)
             reset = info.get("needs_reset", False)
-            
+
             reward, reached = self.local_rf(
                 next_state, info, utils.info_to_pos(goal_info), dsc_goal_salient_event
             )
@@ -316,13 +332,13 @@ class ModelFreeOption(object):
             visited_states.append(next_state)
 
             option_transitions.append(
-                                      (state,
-                                      action, 
-                                      np.sign(reward), 
-                                      next_state, 
-                                      done or reached, 
-                                      reset,
-                                      info)
+                                    (state,
+                                    action,
+                                    np.sign(reward),
+                                    next_state,
+                                    done or reached,
+                                    reset,
+                                    info)
             )
 
             # Truncate initiation trajectories around death transitions
@@ -339,12 +355,13 @@ class ModelFreeOption(object):
         self.success_curve.append(reached)
 
         if not eval_mode:
-            self.update_option_after_rollout(state, info, goal, goal_info, option_transitions, 
-                                             visited_states, visited_infos, reached)
+            self.update_option_after_rollout(state, info, goal, goal_info, option_transitions,
+                                            visited_states, visited_infos, reached)
             print(f"Updated {self.name} on {len(option_transitions)} transitions")
 
         return state, done, reset, visited_infos, goal_info, info, option_transitions
 
+    @Timer.wrap()
     def update_option_after_rollout(self, state, info, goal, goal_info,
                                     option_transitions, visited_states, visited_infos, reached_term):
         """ After rolling out an option policy, update its effect set, policy and initiation classifier. """
@@ -367,7 +384,7 @@ class ModelFreeOption(object):
 
         if not self.global_init and len(visited_states) > 0:
             self.derive_training_examples(visited_states, visited_infos, reached_term)
-        
+
         if not self.global_init:
             self.initiation_classifier.fit_initiation_classifier()
 
@@ -375,6 +392,7 @@ class ModelFreeOption(object):
     # Hindsight Experience Replay
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def no_rf_update(self, transitions, pursued_goal, pursued_goal_info,
                     reached_goal_info, reached_termination_region):
         """ Hindsight experience replay without requiring an oracle reward function. """
@@ -412,7 +430,8 @@ class ModelFreeOption(object):
 
             # HER on the negative trajectory
             self.negative_trajectory_her(transitions)
-    
+
+    @Timer.wrap()
     def negative_trajectory_her(self, transitions):
         hindsight_goal, hindsight_goal_idx = self.solver.pick_hindsight_goal(transitions)
         hindsight_trajectory = transitions[:hindsight_goal_idx+1]
@@ -422,28 +441,30 @@ class ModelFreeOption(object):
             if self.use_rf_on_neg_traj:
                 print("[-trajReplay] Replaying negative trajectory with oracle-rf")
                 visited_positions = [utils.info_to_pos(trans[-1]) for trans in transitions]
-                hindsight_goal_pos = visited_positions[hindsight_goal_idx]  
+                hindsight_goal_pos = visited_positions[hindsight_goal_idx]
                 relabeled_trajectory = self.negative_oracle_relabel(hindsight_trajectory, hindsight_goal_pos)
             else:
                 print("[-trajReplay] Replaying negative trajectory with positive relabel")
                 relabeled_trajectory = self.positive_relabel(hindsight_trajectory)
-            
+
             self.experience_replay(relabeled_trajectory, hindsight_goal)
 
+    @Timer.wrap()
     def positive_relabel(self, trajectory):
-        """ Relabel the final transition in the trajectory as a positive goal transition. """ 
+        """ Relabel the final transition in the trajectory as a positive goal transition. """
         original_transition = trajectory[-1]
         trajectory[-1] = original_transition[0], original_transition[1], +1., \
                          original_transition[3], True, \
                          original_transition[5], original_transition[6]
-        
-        # Sanity check -- since we are only using this function on positive 
+
+        # Sanity check -- since we are only using this function on positive
         # trajectories for now, only the final transition should be positive
         rewards = [transition[2] for transition in trajectory]
         assert np.isclose(sum(rewards), 1), rewards
 
         return trajectory
 
+    @Timer.wrap()
     def negative_relabel(self, trajectory):
         relabeled_trajectory = []
         for state, action, _, next_state, done, reset, info in trajectory:
@@ -457,6 +478,7 @@ class ModelFreeOption(object):
 
         return relabeled_trajectory
 
+    @Timer.wrap()
     def oracle_relabel_pos_trajectory_original_goal(self,
                                                     trajectory,
                                                     pursued_goal_pos,
@@ -464,38 +486,40 @@ class ModelFreeOption(object):
         final_transition = trajectory[-1]
         final_pos = utils.info_to_pos(final_transition[-1])
         assert np.isclose(final_pos, reached_goal_pos).all(), f"{final_pos, reached_goal_pos}"
-        
+
         if self.rf(final_pos, pursued_goal_pos)[1]:
             print("[+trajReplay] Replaying positive trajectory with *positive* original goal")
             relabeled_transitions = self.positive_relabel(trajectory)
             assert np.isclose(sum([x[2] for x in relabeled_transitions]), 1.)
             return relabeled_transitions
-        
+
         print("[+trajReplay] Replaying positive trajectory with *negative* original goal")
         relabeled_transitions = self.negative_relabel(trajectory)
         assert np.isclose(sum([x[2] for x in relabeled_transitions]), 0.)
         return relabeled_transitions
 
-    def relabel_pos_trajectory_original_goal(self, 
-                                             trajectory, 
+    @Timer.wrap()
+    def relabel_pos_trajectory_original_goal(self,
+                                             trajectory,
                                              pursued_goal_info,
                                              reached_goal_info):
-        """ If the pursued goal was from a salient event and we reached that salient event, 
+        """ If the pursued goal was from a salient event and we reached that salient event,
             we can assume that we were epsilon-close to the pursued goal. """
         final_transition = trajectory[-1]
         final_pos = utils.info_to_pos(final_transition[-1])
-        
+
         assert np.isclose(
-            final_pos, 
+            final_pos,
             utils.info_to_pos(reached_goal_info)
         ).all()
-        
+
         if self.target_salient_event is not None and self.target_salient_event(pursued_goal_info):
             print("[+SalientEventTrajReplay] Replaying positive trajectory with *positive* original goal")
             relabeled_transitions = self.positive_relabel(trajectory)
             assert np.isclose(sum([x[2] for x in relabeled_transitions]), 1.)
             return relabeled_transitions
 
+    @Timer.wrap()
     def negative_oracle_relabel(self, trajectory, goal_pos):
         relabeled_trajectory = []
         for state, action, _, next_state, done, reset, info in trajectory:
@@ -513,16 +537,18 @@ class ModelFreeOption(object):
 
         return relabeled_trajectory
 
+    @Timer.wrap()
     def experience_replay(self, trajectory, goal):
         for state, action, reward, next_state, done, reset, _ in trajectory:
             augmented_state = self.solver.get_augmented_state(state, goal)
             augmented_next_state = self.solver.get_augmented_state(next_state, goal)
             self.solver.step(augmented_state, action, deepcopy(reward), augmented_next_state, deepcopy(done), reset)
-    
+
     # ------------------------------------------------------------
     # Learning initiation classifiers
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def derive_training_examples(self, visited_states, visited_infos, reached_term):
         assert len(visited_states) == len(visited_infos)
 
@@ -532,10 +558,10 @@ class ModelFreeOption(object):
         if reached_term:
             positive_infos = [start_info] + visited_infos[-self.buffer_length:]
             positive_states = [start_state] + visited_states[-self.buffer_length:]
-            
+
             self.initiation_classifier.add_positive_examples(positive_states, positive_infos)
         else:
-            negative_infos = [start_info] 
+            negative_infos = [start_info]
             negative_states = [start_state]
 
             if self.use_full_neg_traj:
@@ -548,20 +574,23 @@ class ModelFreeOption(object):
     # Distance functions
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def value_function(self, obs, goals):
         """ Value function for a single observation and a set of goals. """
         augmented_states = [self.solver.get_augmented_state(obs, goal) for goal in goals]
         return self.solver.value_function(augmented_states)
 
+    @Timer.wrap()
     def distance_to_state(self, pos, metric="euclidean"):
         """ Compute the distance between the current option and the input `state`. """
         assert metric in ("euclidean", "value"), metric
 
         if metric == "euclidean":
             return self._euclidean_distance_to_state(pos)
-        
+
         raise NotImplementedError("VF based distances.")
 
+    @Timer.wrap()
     def _euclidean_distance_to_state(self, point):
         assert isinstance(point, np.ndarray)
         assert point.shape == (2,), point.shape
@@ -571,6 +600,7 @@ class ModelFreeOption(object):
         distances = distance.cdist(point[None, :], positive_point_array)
         return np.median(distances)
 
+    @Timer.wrap()
     def _value_distance_to_state(self, state):
         features = state.features() if not isinstance(state, np.ndarray) else state
         goals = self.initiation_classifier.get_states_inside_pessimistic_classifier_region()
@@ -617,6 +647,6 @@ class ModelFreeOption(object):
         if isinstance(other, ModelFreeOption):
             return self.name == other.name
         return False
-    
+
     def __hash__(self):
         return hash(self.name)

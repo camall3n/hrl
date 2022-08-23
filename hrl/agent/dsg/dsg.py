@@ -44,8 +44,10 @@ class SkillGraphAgent:
     # Control loop methods
     # -----------------------------–––––––--------------
 
+    @Timer.wrap()
     def act(self, state, info, goal_vertex, sampled_goal):
 
+        @Timer.wrap()
         def _pick_option_to_execute_from_plan(selected_plan):
             admissible_options = [o for o in selected_plan if o.is_init_true(state, info) and not o.is_term_true(state, info)]
             if len(admissible_options) > 0:
@@ -85,6 +87,7 @@ class SkillGraphAgent:
 
         return option
 
+    @Timer.wrap()
     def run_loop(self, *, state, info, goal_salient_event, episode, eval_mode):
         assert isinstance(state, atari_wrappers.LazyFrames)
         assert isinstance(goal_salient_event, SalientEvent)
@@ -96,36 +99,31 @@ class SkillGraphAgent:
         done = False
         reset = False
 
-        with Timer('dsg.run_loop->is_state_inside_vertex'):
-            if self.is_state_inside_vertex(state, info, goal_salient_event):
-                return state, info, done, reset, True, traj
+        if self.is_state_inside_vertex(state, info, goal_salient_event):
+            return state, info, done, reset, True, traj
 
-        with Timer('dsg.run_loop->get_goal_vertices_for_rollout'):
-            planner_goal_vertex, dsc_goal_vertex = self.get_goal_vertices_for_rollout(state, info, goal_salient_event)
-            print(f"Planner goal: {planner_goal_vertex}, DSC goal: {dsc_goal_vertex} and Goal: {goal_salient_event}")
+        planner_goal_vertex, dsc_goal_vertex = self.get_goal_vertices_for_rollout(state, info, goal_salient_event)
+        print(f"Planner goal: {planner_goal_vertex}, DSC goal: {dsc_goal_vertex} and Goal: {goal_salient_event}")
 
-        with Timer('dsg.run_loop->run_sub_loop[planner_goal_vertex]'):
-            if not planner_goal_vertex(info):
-                state, info, done, reset, traj1 = self.run_sub_loop(state, info, planner_goal_vertex, goal_salient_event, episode, eval_mode)
-                self.gc_successes[tuple(planner_goal_vertex.target_pos)].append(planner_goal_vertex(info))
-                if traj1: traj.extend(traj1)
+        if not planner_goal_vertex(info):
+            state, info, done, reset, traj1 = self.run_sub_loop(state, info, planner_goal_vertex, goal_salient_event, episode, eval_mode)
+            self.gc_successes[tuple(planner_goal_vertex.target_pos)].append(planner_goal_vertex(info))
+            if traj1: traj.extend(traj1)
 
-        with Timer('dsg.run_loop->run_sub_loop[dsc_goal_vertex]'):
-            if not dsc_goal_vertex(info) and not done and not reset:
-                state, info, done, reset, traj1 = self.run_sub_loop(state, info, dsc_goal_vertex, goal_salient_event, episode, eval_mode)
-                self.gc_successes[tuple(dsc_goal_vertex.target_pos)].append(dsc_goal_vertex(info))
-                if traj1: traj.extend(traj1)
+        if not dsc_goal_vertex(info) and not done and not reset:
+            state, info, done, reset, traj1 = self.run_sub_loop(state, info, dsc_goal_vertex, goal_salient_event, episode, eval_mode)
+            self.gc_successes[tuple(dsc_goal_vertex.target_pos)].append(dsc_goal_vertex(info))
+            if traj1: traj.extend(traj1)
 
-        with Timer('dsg.run_loop->run_sub_loop[goal_salient_event]'):
-            if not goal_salient_event(info) and not done and not reset:
-                state, info, done, reset, traj1 = self.run_sub_loop(state, info, goal_salient_event, goal_salient_event, episode, eval_mode)
-                self.gc_successes[tuple(goal_salient_event.target_pos)].append(goal_salient_event(info))
-                if traj1: traj.extend(traj1)
+        if not goal_salient_event(info) and not done and not reset:
+            state, info, done, reset, traj1 = self.run_sub_loop(state, info, goal_salient_event, goal_salient_event, episode, eval_mode)
+            self.gc_successes[tuple(goal_salient_event.target_pos)].append(goal_salient_event(info))
+            if traj1: traj.extend(traj1)
 
-        with Timer('dsg.run_loop->is_state_inside_vertex'):
-            result_of_state_is_inside_vertex = self.is_state_inside_vertex(state, info, goal_salient_event)
+        result_of_state_is_inside_vertex = self.is_state_inside_vertex(state, info, goal_salient_event)
         return state, info, done, reset, result_of_state_is_inside_vertex, traj
 
+    @Timer.wrap()
     def run_sub_loop(self, state, info, goal_vertex, goal_salient_event, episode, eval_mode):
 
         traj = []
@@ -138,20 +136,21 @@ class SkillGraphAgent:
         if planner_condition(state, info, goal_vertex) and not self.is_state_inside_vertex(state, info, goal_salient_event):
             print(f"[Planner] Rolling out from {info} targeting {goal_vertex}")
             state, info, done, reset, traj = self.planner_rollout_inside_graph(state=state,
-                                                                         info=info,
-                                                                         goal_vertex=goal_vertex,
-                                                                         goal_salient_event=goal_salient_event,
-                                                                         episode_number=episode,
-                                                                         eval_mode=eval_mode)
+                                                                        info=info,
+                                                                        goal_vertex=goal_vertex,
+                                                                        goal_salient_event=goal_salient_event,
+                                                                        episode_number=episode,
+                                                                        eval_mode=eval_mode)
 
         elif not self.is_state_inside_vertex(state, info, goal_salient_event):
             state, info, done, reset, traj = self.dsc_outside_graph(state, info,
-                                                              episode=episode,
-                                                              goal_salient_event=goal_salient_event,
-                                                              dsc_goal_vertex=goal_vertex)
+                                                            episode=episode,
+                                                            goal_salient_event=goal_salient_event,
+                                                            dsc_goal_vertex=goal_vertex)
 
         return state, info, done, reset, traj
 
+    @Timer.wrap()
     def planner_rollout_inside_graph(self, *, state, info, goal_vertex,
                                      goal_salient_event, episode_number, eval_mode):
         """ Control loop that drives the agent from `state` to `goal_vertex` or times out. """
@@ -193,6 +192,7 @@ class SkillGraphAgent:
 
         return state, info, done, reset, rollout_trajectory
 
+    @Timer.wrap()
     def dsc_outside_graph(self, state, info, episode, goal_salient_event, dsc_goal_vertex):
 
         dsc_interrupt_handle = lambda s, i: self.is_state_inside_vertex(s, i, dsc_goal_vertex) or\
@@ -222,6 +222,7 @@ class SkillGraphAgent:
     # Graph Expansion
     # -----------------------------–––––––--------------
 
+    @Timer.wrap()
     def model_free_extrapolation(self, env, state, info, episode):
         """ Single episodic rollout of the exploration policy to extend the graph. """
 
@@ -236,6 +237,7 @@ class SkillGraphAgent:
 
         return self.create_target_state(state_reward_pairs)
 
+    @Timer.wrap()
     def create_target_state(self, state_reward_pairs):
 
         best_state = None
@@ -249,6 +251,7 @@ class SkillGraphAgent:
 
         return best_state, max_intrinsic_reward
 
+    @Timer.wrap()
     def get_node_to_expand(self, method="rf", accumulator="sample"):
         """ Use the RND agent to find the graph node to expand. """
 
@@ -262,6 +265,7 @@ class SkillGraphAgent:
         assert len(nodes) == 0, nodes
         return self.dsc_agent.init_salient_event
 
+    @Timer.wrap()
     def pick_expansion_node(self, nodes, scores, choice_type="deterministic"):
         assert choice_type in ("deterministic", "stochastic"), choice_type
 
@@ -285,6 +289,7 @@ class SkillGraphAgent:
 
         return _stochastic_pick_node(nodes, scores)
 
+    @Timer.wrap()
     def get_candidate_nodes_for_expansion(self):
         """ There are two possibilities: First, we only consider nodes to which there is a path, but that is too
          conservative. Second, we consider all the events ever discovered, but that could be too aggressive since
@@ -293,6 +298,7 @@ class SkillGraphAgent:
         nodes_with_enough_data = [node for node in self.salient_events if len(node.effect_set) >= self.min_n_points_for_expansion]
         return nodes_with_enough_data
 
+    @Timer.wrap()
     def get_rnd_score(self, node, method="vf", accumulator="mean"):
         assert method in ("vf", "rf"), method
         assert accumulator in ("mean", "sample"), accumulator
@@ -333,6 +339,7 @@ class SkillGraphAgent:
     # Graph Consolidation
     # -----------------------------–––––––--------------
 
+    @Timer.wrap()
     def perform_option_rollout(self, state, info, option, episode, eval_mode, goal_salient_event):
         assert isinstance(option, ModelFreeOption)
 
@@ -363,6 +370,7 @@ class SkillGraphAgent:
     # Distance functions
     # -----------------------------–––––––--------------
 
+    @Timer.wrap()
     def closest_node_lut(self, target_event):
         spos  = (77, 235)
         gpos0 = (123, 148)
@@ -391,6 +399,7 @@ class SkillGraphAgent:
 
         ipdb.set_trace()
 
+    @Timer.wrap()
     def update_empirical_distance_estimates(self, infos, events):
 
         def reverse_enum(x):
@@ -444,6 +453,7 @@ class SkillGraphAgent:
 
         print(f"Took {time.time() - t0}s to update distance table with {len(infos)} states and events {set(event_traj)}")
 
+    @Timer.wrap()
     def choose_closest_source_target_vertex_pair(self, state, info, goal_salient_event, choose_among_events):
         candidate_vertices_to_fall_from = self.planner.get_reachable_nodes_from_source_state(state, info)
         candidate_vertices_to_fall_from = list(candidate_vertices_to_fall_from) + self.get_corresponding_events(state, info)
@@ -462,6 +472,7 @@ class SkillGraphAgent:
                                                  candidate_vertices_to_jump_to,
                                                  metric=self.distance_metric)
 
+    @Timer.wrap()
     def get_goal_vertices_for_rollout(self, state, info, goal_salient_event):
         # Revise the goal_salient_event if it cannot be reached from the current state
         if not self.planner.does_path_exist(state, info, goal_salient_event):
@@ -472,6 +483,7 @@ class SkillGraphAgent:
                 return planner_goal_vertex, dsc_goal_vertex
         return goal_salient_event, goal_salient_event
 
+    @Timer.wrap()
     def get_closest_pair_of_vertices(self, src_vertices, dest_vertices, metric):
         def sample(A, num_rows):
             return A[np.random.randint(A.shape[0], size=num_rows), :].squeeze()
@@ -487,6 +499,7 @@ class SkillGraphAgent:
 
             return src_vertices[min_array[0]], dest_vertices[min_array[1]]
 
+    @Timer.wrap()
     def get_distance_matrix(self, src_vertices, dest_vertices, metric="euclidean"):
         assert metric in ("euclidean", "vf", "ucb", "empirical"), metric
 
@@ -545,6 +558,7 @@ class SkillGraphAgent:
                                           self.dsc_agent.global_option.value_function,
                                           n_dst_observations)
 
+    @Timer.wrap()
     def evaluate_distance_metric_accuracy(self, vertices, metric):
         assert len(vertices) > 0
 
@@ -569,6 +583,7 @@ class SkillGraphAgent:
     # Maintaining the graph
     # -----------------------------–––––––--------------
 
+    @Timer.wrap()
     def modify_edge_weight(self, executed_option, final_state, final_info):
         """
         The edge weight in the graph represents the cost of executing an option policy.
@@ -605,6 +620,7 @@ class SkillGraphAgent:
         for vertex in failed_reaching_vertices:
             modify(vertex, -1)
 
+    @Timer.wrap()
     def _delete_outgoing_edges_if_needed(self, executed_option):
         assert isinstance(executed_option, ModelFreeOption)
 
@@ -625,6 +641,7 @@ class SkillGraphAgent:
                 print(f"Deleting edge from {executed_option} to {node}")
                 self.planner.plan_graph.remove_edge(executed_option, node)
 
+    @Timer.wrap()
     def _delete_incoming_edges_if_needed(self, executed_option):
         assert isinstance(executed_option, ModelFreeOption)
 
@@ -645,6 +662,7 @@ class SkillGraphAgent:
                 print(f"Deleting edge from {node} to {executed_option}")
                 self.planner.plan_graph.remove_edge(node, executed_option)
 
+    @Timer.wrap()
     def add_potential_edges(self, option):
 
         for node in self.planner.plan_graph.nodes:
@@ -665,10 +683,12 @@ class SkillGraphAgent:
                     print(f"Adding edge from {node} to {option}")
                     self.planner.add_edge(node, option)
 
+    @Timer.wrap()
     def modify_node_connections(self, executed_option):
         self._delete_outgoing_edges_if_needed(executed_option)
         self._delete_incoming_edges_if_needed(executed_option)
 
+    @Timer.wrap()
     def add_newly_created_option_to_plan_graph(self, newly_created_option):
 
         assert newly_created_option.get_training_phase() == "initiation_done", \
@@ -750,6 +770,7 @@ class SkillGraphAgent:
         if chain.should_complete_chain(newly_created_option):
             chain.set_chain_completed()
 
+    @Timer.wrap()
     def update_chain_init_descendants(self):
         for chain in self.dsc_agent.chains:  # type: SkillChain
             assert isinstance(chain, SkillChain)
@@ -762,6 +783,7 @@ class SkillGraphAgent:
     # Utility functions
     # -----------------------------–––––––--------------
 
+    @Timer.wrap()
     @staticmethod
     def sample_from_vertex(vertex):
         assert isinstance(vertex, (ModelFreeOption, SalientEvent)), f"{type(vertex)}"
@@ -773,6 +795,7 @@ class SkillGraphAgent:
         sample = random.choice(vertex.effect_set)
         return sample.obs, sample.info
 
+    @Timer.wrap()
     @staticmethod
     def is_state_inside_vertex(state, info, vertex):
         assert isinstance(info, dict), f"{type(info)}"

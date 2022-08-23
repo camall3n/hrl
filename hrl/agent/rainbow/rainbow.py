@@ -9,9 +9,10 @@ from pfrl.wrappers import atari_wrappers
 from pfrl.q_functions import DistributionalDuelingDQN
 from pfrl.utils import batch_states as pfrl_batch_states
 
+from timer import Timer
 
 class Rainbow:
-    def __init__(self, n_actions, n_atoms, v_min, v_max, noisy_net_sigma, lr, 
+    def __init__(self, n_actions, n_atoms, v_min, v_max, noisy_net_sigma, lr,
                  n_steps, betasteps, replay_start_size, replay_buffer_size, gpu,
                  goal_conditioned, use_custom_batch_states=True):
         self.n_actions = n_actions
@@ -27,7 +28,7 @@ class Rainbow:
 
         self.rbuf = replay_buffers.PrioritizedReplayBuffer(
             replay_buffer_size,
-            alpha=0.5, 
+            alpha=0.5,
             beta0=0.4,
             betasteps=betasteps,
             num_steps=n_steps,
@@ -65,10 +66,12 @@ class Rainbow:
         """ Observation pre-processing for convolutional layers. """
         return np.asarray(x, dtype=np.float32) / 255.
 
+    @Timer.wrap()
     def act(self, state):
         """ Action selection method at the current state. """
         return self.agent.act(state)
 
+    @Timer.wrap()
     def step(self, state, action, reward, next_state, done, reset):
         """ Learning update based on a given transition from the environment. """
         self._overwrite_pfrl_state(state, action)
@@ -79,18 +82,21 @@ class Rainbow:
         self.agent.batch_last_obs = [state]
         self.agent.batch_last_action = [action]
 
+    @Timer.wrap()
     @torch.no_grad()
     def value_function(self, states):
         batch_states = self.agent.batch_states(states, self.device, self.phi)
         action_values = self.agent.model(batch_states).q_values
         return action_values.max(dim=1).values
 
+    @Timer.wrap()
     def experience_replay(self, trajectory):
         """ Add trajectory to the replay buffer and perform agent learning updates. """
 
         for transition in trajectory:
             self.step(*transition)
 
+    @Timer.wrap()
     def gc_experience_replay(self, trajectory, goal, goal_position):
         """ Add trajectory to the replay buffer and perform agent learning updates. """
 
@@ -101,7 +107,7 @@ class Rainbow:
             pos = np.array([pos['player_x'], pos['player_y']]) if isinstance(pos, dict) else pos
             d = is_close(pos, goal_pos, tol=2)
             return float(d), d
-        
+
         for state, action, _, next_state, done, reset, next_pos in trajectory:
             augmented_state = self.get_augmented_state(state, goal)
             augmented_next_state = self.get_augmented_state(next_state, goal)
@@ -110,12 +116,14 @@ class Rainbow:
             self.step(*relabeled_transition)
             if reached: break  # it helps to truncate the trajectory for HER strategy `future`
 
+    @Timer.wrap()
     def get_augmented_state(self, state, goal):
         assert isinstance(goal, atari_wrappers.LazyFrames), type(goal)
         assert isinstance(state, atari_wrappers.LazyFrames), type(state)
         features = list(state._frames) + [goal._frames[-1]]
         return atari_wrappers.LazyFrames(features, stack_axis=0)
 
+    @Timer.wrap()
     def rollout(self, env, state, episode, max_reward_so_far):
         """ Single episodic rollout of the agent's policy. """
 
@@ -145,9 +153,9 @@ class Rainbow:
 
             episode_trajectory.append((state,
                                        action,
-                                       np.sign(reward), 
-                                       next_state, 
-                                       done or reached, 
+                                       np.sign(reward),
+                                       next_state,
+                                       done or reached,
                                        reset))
 
             self.T += 1
@@ -158,10 +166,11 @@ class Rainbow:
 
         self.experience_replay(episode_trajectory)
         max_reward_so_far = max(episode_reward, max_reward_so_far)
-        print(f"Episode: {episode}, T: {self.T}, Reward: {episode_reward}, Max reward: {max_reward_so_far}")        
+        print(f"Episode: {episode}, T: {self.T}, Reward: {episode_reward}, Max reward: {max_reward_so_far}")
 
         return episode_reward, episode_length, max_reward_so_far
 
+    @Timer.wrap()
     def gc_rollout(self, env, state, goal, goal_pos, rf, episode, max_reward_so_far):
         """ Single episodic rollout of the agent's policy. """
 
@@ -188,9 +197,9 @@ class Rainbow:
             episode_trajectory.append(
                                       (state,
                                        action,
-                                       np.sign(reward), 
-                                       next_state, 
-                                       done or reached, 
+                                       np.sign(reward),
+                                       next_state,
+                                       done or reached,
                                        reset,
                                        player_pos
                                     )
@@ -205,21 +214,23 @@ class Rainbow:
         self.her(episode_trajectory, episode_positions, goal, pursued_goal_position=goal_pos)
 
         max_reward_so_far = max(episode_reward, max_reward_so_far)
-        print(f"G: {goal_pos}, T: {self.T}, Reward: {episode_reward}, Max reward: {max_reward_so_far}")        
+        print(f"G: {goal_pos}, T: {self.T}, Reward: {episode_reward}, Max reward: {max_reward_so_far}")
 
         return episode_reward, episode_length, max_reward_so_far, done or reset
-    
+
+    @Timer.wrap()
     def her(self, trajectory, visited_positions, pursued_goal, pursued_goal_position):
         hindsight_goal, hindsight_goal_idx = self.pick_hindsight_goal(trajectory)
         self.gc_experience_replay(trajectory, pursued_goal, pursued_goal_position)
         self.gc_experience_replay(trajectory, hindsight_goal, visited_positions[hindsight_goal_idx])
 
+    @Timer.wrap()
     def pick_hindsight_goal(self, trajectory, strategy="future"):
         """ Select a hindsight goal from the input trajectory. """
         assert strategy in ("final", "future"), strategy
-        
+
         goal_idx = -1
-        
+
         if strategy == "future":
             start_idx = len(trajectory) // 2
             goal_idx = random.randint(start_idx, len(trajectory) - 1)
