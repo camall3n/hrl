@@ -169,6 +169,8 @@ class DSGTrainer:
                                 self.dsc_agent.seed, self.dsc_agent.experiment_name
                             )
 
+                    Timer.print_stats()
+
             iteration += 1
 
     @Timer.wrap()
