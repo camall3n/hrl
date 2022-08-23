@@ -122,6 +122,7 @@ class FixedConvInitiationClassifier(InitiationClassifier):
         return features
 
     @staticmethod
+    @Timer.wrap()
     def extract_positions(examples):
         examples = itertools.chain.from_iterable(examples)
         positions = [example.pos for example in examples]

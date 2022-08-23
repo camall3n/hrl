@@ -783,8 +783,8 @@ class SkillGraphAgent:
     # Utility functions
     # -----------------------------–––––––--------------
 
-    @Timer.wrap()
     @staticmethod
+    @Timer.wrap()
     def sample_from_vertex(vertex):
         assert isinstance(vertex, (ModelFreeOption, SalientEvent)), f"{type(vertex)}"
 
@@ -795,8 +795,8 @@ class SkillGraphAgent:
         sample = random.choice(vertex.effect_set)
         return sample.obs, sample.info
 
-    @Timer.wrap()
     @staticmethod
+    @Timer.wrap()
     def is_state_inside_vertex(state, info, vertex):
         assert isinstance(info, dict), f"{type(info)}"
         assert isinstance(state, atari_wrappers.LazyFrames), f"{type(state)}"

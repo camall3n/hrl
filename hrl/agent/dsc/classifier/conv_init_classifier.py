@@ -111,8 +111,8 @@ class ConvInitiationClassifier(InitiationClassifier):
         obs_tensor = torch.as_tensor(observations).float().to(self.device)
         return obs_tensor
 
-    @Timer.wrap()
     @staticmethod
+    @Timer.wrap()
     def extract_positions(examples):
         examples = itertools.chain.from_iterable(examples)
         positions = [example.pos for example in examples]
