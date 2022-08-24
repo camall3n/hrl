@@ -123,6 +123,7 @@ class DSGTrainer:
         episode = start_episode
 
         while episode < start_episode + num_episodes:
+            Timer.print_stats()
 
             if self.should_expand(episode) and self.graph_mode == "consolidation":
                 self.graph_expansion_run_loop(episode, self.expansion_duration)
@@ -168,8 +169,6 @@ class DSGTrainer:
                                 self.dsc_agent.rnd_rams, episode,
                                 self.dsc_agent.seed, self.dsc_agent.experiment_name
                             )
-
-                    Timer.print_stats()
 
             iteration += 1
 
