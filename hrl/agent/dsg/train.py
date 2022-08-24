@@ -22,7 +22,6 @@ from hrl.montezuma.dopamine_env import AtariPreprocessing
 
 from timer import Timer
 import signal
-import sys
 
 def signal_handler(sig, frame):
     print('You pressed Ctrl+C! Printing preliminary stats.')
@@ -262,7 +261,4 @@ def main():
     print(f"Finished after {(time.time() - t0) / 3600.} hrs")
 
 if __name__ == "__main__":
-    try:
-        main()
-    finally:
-        Timer.print_stats()
+    main()
