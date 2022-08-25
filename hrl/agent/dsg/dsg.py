@@ -405,11 +405,13 @@ class SkillGraphAgent:
         def reverse_enum(x):
             return reversed(list(enumerate(x)))
 
+        @Timer.wrap()
         def state_to_event(info, events):
             for event in events:
                 if event(info) and not info["uncontrollable"]:
                     return event
 
+        @Timer.wrap()
         def states_to_event_traj(infos, events):
             event_traj = []
             for info in infos:
@@ -417,6 +419,7 @@ class SkillGraphAgent:
                 event_traj.append(event)
             return event_traj
 
+        @Timer.wrap()
         def truncate_traj_at_death(trajectory):
             truncated = []
             sub_trajectory = []
@@ -427,6 +430,7 @@ class SkillGraphAgent:
                     sub_trajectory = []
             return truncated
 
+        @Timer.wrap()
         def update_from_traj(infos, events):
             event_traj = states_to_event_traj(infos, events)
 
@@ -503,11 +507,13 @@ class SkillGraphAgent:
     def get_distance_matrix(self, src_vertices, dest_vertices, metric="euclidean"):
         assert metric in ("euclidean", "vf", "ucb", "empirical"), metric
 
+        @Timer.wrap()
         def sample(vertex, key):
             assert key in ('obs', 'pos')
             x = random.choice(vertex.effect_set)
             return x.obs if key == 'obs' else x.pos
 
+        @Timer.wrap()
         def value_to_distance(v, n):
             pos_value = v.squeeze().abs()
             if metric == "ucb":
@@ -517,6 +523,7 @@ class SkillGraphAgent:
                 pos_value = pos_value + (1. / torch.sqrt(_n))
             return 1. / pos_value
 
+        @Timer.wrap()
         def batched_pairwise_distances(observationsA, observationsB, vf, n_points):
             distance_matrix = torch.zeros((len(observationsA), len(observationsB)))
             distance_matrix = distance_matrix.to(self.dsc_agent.global_option.solver.device)
@@ -529,9 +536,11 @@ class SkillGraphAgent:
 
             return distance_matrix.cpu().numpy()
 
+        @Timer.wrap()
         def euclidean_distances(positionsA, positionsB):
             return scipy.spatial.distance.cdist(positionsA, positionsB)
 
+        @Timer.wrap()
         def empirical_distances(events1, events2):
             N = len(events1)
             M = len(events2)

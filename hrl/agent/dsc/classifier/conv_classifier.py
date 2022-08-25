@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from hrl.agent.dsc.classifier.ensemble_models import ImageCNN
 
+from timer import Timer
 
 class ConvClassifier:
     """" Generic binary convolutional classifier. """
@@ -14,7 +15,7 @@ class ConvClassifier:
                 threshold=0.5,
                 n_input_channels=1,
                 batch_size=32):
-        
+
         self.device = device
         self.is_trained = False
         self.threshold = threshold
@@ -26,6 +27,7 @@ class ConvClassifier:
         # Debug variables
         self.losses = []
 
+    @Timer.wrap()
     @torch.no_grad()
     def predict(self, X, threshold=None):
         logits = self.model(X)
@@ -33,6 +35,7 @@ class ConvClassifier:
         threshold = self.threshold if threshold is None else threshold
         return probabilities > threshold
 
+    @Timer.wrap()
     def determine_pos_weight(self, y):
         n_negatives = len(y[y != 1])
         n_positives = len(y[y == 1])
@@ -40,12 +43,14 @@ class ConvClassifier:
             pos_weight = (1. * n_negatives) / n_positives
             return torch.as_tensor(pos_weight).float()
 
+    @Timer.wrap()
     def should_train(self, y):
         enough_data = len(y) > self.batch_size
         has_positives = len(y[y == 1]) > 0
         has_negatives = len(y[y != 1]) > 0
         return enough_data and has_positives and has_negatives
 
+    @Timer.wrap()
     def sample(self, X, y):
         idx = random.sample(range(len(X)), k=self.batch_size)
         input_samples = X[idx, :]
@@ -53,6 +58,7 @@ class ConvClassifier:
         return torch.as_tensor(input_samples).to(self.device),\
                torch.as_tensor(label_samples).to(self.device)
 
+    @Timer.wrap()
     def fit(self, X, y, n_epochs=3):
         dataset = ClassifierDataset(X, y)
         dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
@@ -61,15 +67,16 @@ class ConvClassifier:
             losses = []
 
             for _ in range(n_epochs):
-                epoch_loss = self._train(dataloader)                
+                epoch_loss = self._train(dataloader)
                 losses.append(epoch_loss)
-            
+
             self.is_trained = True
 
             mean_loss = np.mean(losses)
             print(mean_loss)
             self.losses.append(mean_loss)
 
+    @Timer.wrap()
     def _train(self, loader):
         """ Single epoch of training. """
         batch_losses = []
@@ -83,14 +90,14 @@ class ConvClassifier:
             logits = self.model(sampled_inputs)
             loss = F.binary_cross_entropy_with_logits(logits.squeeze(),
                                                       sampled_labels,
-                                                      pos_weight=pos_weight) 
+                                                      pos_weight=pos_weight)
 
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
 
             batch_losses.append(loss.item())
-        
+
         return np.mean(batch_losses)
 
 

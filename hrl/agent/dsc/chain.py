@@ -2,6 +2,7 @@ import numpy as np
 from .option import ModelFreeOption
 from ...salient_event.salient_event import SalientEvent
 
+from timer import Timer
 
 class SkillChain:
     def __init__(self, init_salient_event, target_salient_event, options, chain_id, max_num_options=5):
@@ -20,12 +21,13 @@ class SkillChain:
 
     def should_continue_chaining(self):
         return not self.is_chain_completed()
-    
+
     @staticmethod
     def edge_condition(inits):
         return np.mean(inits) > 0.7
 
     @staticmethod
+    @Timer.wrap()
     def should_exist_edge_between_options(my_option, other_option):
         """ Should there exist an edge from option1 -> option2? """
         assert SkillChain.is_option_type(my_option)
@@ -34,7 +36,7 @@ class SkillChain:
         if my_option.get_training_phase() == "initiation_done" and \
             other_option.get_training_phase() == "initiation_done":
             effect_set = my_option.get_effective_effect_set()
-            
+
             if len(effect_set) > 0:
                 inits = [other_option.pessimistic_is_init_true(eg.obs, eg.info) for eg in effect_set]
                 is_intersecting = SkillChain.edge_condition(inits)
@@ -43,6 +45,7 @@ class SkillChain:
         return False
 
     @staticmethod
+    @Timer.wrap()
     def should_exist_edge_from_event_to_option(event, option):
         """ Should there be an edge from `event` to `option`? """
         assert isinstance(event, SalientEvent)
@@ -63,6 +66,7 @@ class SkillChain:
         return False
 
     @staticmethod
+    @Timer.wrap()
     def should_exist_edge_from_option_to_event(option, event):
         """ Should there be an edge from `option` to `event`? """
         assert isinstance(option, ModelFreeOption)
@@ -75,6 +79,7 @@ class SkillChain:
 
         return False
 
+    @Timer.wrap()
     def should_expand_initiation_classifier(self, option):
         assert isinstance(option, ModelFreeOption), f"{type(option)}"
         assert isinstance(self.init_salient_event, SalientEvent)
@@ -90,6 +95,7 @@ class SkillChain:
                 return option.pessimistic_is_init_true(obs, info)
         return False
 
+    @Timer.wrap()
     def should_complete_chain(self, option):
         """ Check if a newly learned option completes its corresponding chain. """
         assert isinstance(option, ModelFreeOption), f"{type(option)}"
@@ -107,6 +113,7 @@ class SkillChain:
         # Finally, cap by the number of skills
         return len(self.get_trained_options()) > self.max_num_options
 
+    @Timer.wrap()
     def does_descendant_complete_chain(self, option):
         for descendant in self._init_descendants:
             if isinstance(descendant, SalientEvent):
@@ -119,6 +126,7 @@ class SkillChain:
                     return True
         return False
 
+    @Timer.wrap()
     def is_chain_completed(self):
         """
         The chain is considered complete when it learns an option whose initiation set covers
@@ -188,11 +196,10 @@ class SkillChain:
 
     def set_chain_completed(self):
         self._is_deemed_completed = True
-    
+
     def get_leaf_nodes_from_skill_chain(self):
         return [option for option in self.options if len(option.children) == 0]
 
     def get_root_nodes_from_skill_chain(self):
         return [option for option in self.options if option.parent is None]
 
-    

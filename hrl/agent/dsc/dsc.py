@@ -7,6 +7,7 @@ from hrl.agent.dsc.chain import SkillChain
 from hrl.agent.dsc.option import ModelFreeOption
 from hrl.salient_event.salient_event import SalientEvent
 
+from timer import Timer
 
 class RobustDSC(object):
     def __init__(self, mdp, gestation_period, buffer_length,
@@ -36,7 +37,7 @@ class RobustDSC(object):
 
         self.max_num_options = max_num_options
         self.use_pos_for_init = use_pos_for_init
-        
+
         self.buffer_length = buffer_length
         self.gestation_period = gestation_period
         self.init_salient_event = init_event
@@ -70,12 +71,14 @@ class RobustDSC(object):
     # ------------------------------------------------------------
 
     @staticmethod
+    @Timer.wrap()
     def _pick_earliest_option(state, info, options):
         cond = lambda x, y: x.is_init_true(*y) and not x.is_term_true(*y)
         for option in options:
             if cond(option, (state, info)):
                 return option
 
+    @Timer.wrap()
     def _get_chains_corresponding_to_goal(self, goal_info):
         chains = [chain for chain in self.chains if chain.target_salient_event(goal_info)]
 
@@ -86,6 +89,7 @@ class RobustDSC(object):
                         chains.append(chain)
         return chains
 
+    @Timer.wrap()
     def act(self, state, info, goal_info):
         chains_targeting_goal = self._get_chains_corresponding_to_goal(goal_info)
         for chain in chains_targeting_goal:
@@ -98,6 +102,7 @@ class RobustDSC(object):
     # Run loop
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def dsc_rollout(self, state, info, goal_salient_event, episode,
                     eval_mode=False, interrupt_handle=lambda state, info: False):
         assert isinstance(goal_salient_event, SalientEvent)
@@ -141,6 +146,7 @@ class RobustDSC(object):
 
         return state, info, done, reset, learned_options, rollout_trajectory
 
+    @Timer.wrap()
     def run_loop(self, goal_salient_event, num_steps):
         step = 0
         episode = 0
@@ -161,7 +167,7 @@ class RobustDSC(object):
 
             with open(self.log_file, "wb+") as f:
                 episode_metrics = {
-                                "step": _log_steps, 
+                                "step": _log_steps,
                                 "reward": _log_rewards,
                 }
                 pickle.dump(episode_metrics, f)
@@ -180,6 +186,7 @@ class RobustDSC(object):
     # Managing the skill chains
     # ------------------------------------------------------------
 
+    @Timer.wrap()
     def should_create_children_options(self, parent_option):
 
         if parent_option is None:
@@ -189,20 +196,24 @@ class RobustDSC(object):
                and parent_option.get_training_phase() == "initiation_done" \
                and self.chains[parent_option.chain_id - 1].should_continue_chaining()
 
+    @Timer.wrap()
     def should_create_more_options(self):
         """ Continue chaining as long as any chain is still accepting new options. """
         return any([chain.should_continue_chaining() for chain in self.chains])
 
+    @Timer.wrap()
     def add_new_option_to_skill_chain(self, new_option):
         self.new_options.append(new_option)
         chain_idx = new_option.chain_id - 1
         self.chains[chain_idx].options.append(new_option)
 
+    @Timer.wrap()
     def finish_option_initiation_phase(self, option):
         assert option.get_training_phase() == "initiation_done"
         self.new_options.remove(option)
         self.mature_options.append(option)
 
+    @Timer.wrap()
     def manage_chain_after_option_rollout(self, option, episode):
 
         if option in self.new_options and option.get_training_phase() != "gestation":
@@ -211,7 +222,7 @@ class RobustDSC(object):
             if should_create_children:
                 new_option = self.create_child_option(parent=option)
                 self.add_new_option_to_skill_chain(new_option)
-            
+
             if self.use_pos_for_init:
                 plot_two_class_classifier(option, episode, self.experiment_name, seed=self.seed)
             else:
@@ -242,12 +253,12 @@ class RobustDSC(object):
                                                target_event=target_event)
         self.new_options.append(root_option)
 
-        new_chain = SkillChain(options=[root_option], 
+        new_chain = SkillChain(options=[root_option],
                                chain_id=chain_id,
 							   target_salient_event=target_event,
 							   init_salient_event=init_event)
         self.add_skill_chain(new_chain)
-        
+
         return new_chain
 
     def add_skill_chain(self, new_chain):
@@ -256,14 +267,14 @@ class RobustDSC(object):
 
     def create_local_option(self,
                             name,
-                            init_event, 
+                            init_event,
                             target_event,
                             chain_idx,
                             parent=None):
         option = ModelFreeOption(name=name,
                                  option_idx=self.current_option_idx,
-                                 parent=parent, 
-                                 timeout=np.inf, 
+                                 parent=parent,
+                                 timeout=np.inf,
                                  env=self.mdp,
                                  global_init=False,
                                  global_solver=self.global_option.solver,
@@ -273,7 +284,7 @@ class RobustDSC(object):
                                  n_training_steps=int(2e6),  # TODO
                                  init_salient_event=init_event,
                                  target_salient_event=target_event,
-                                 
+
                                  use_oracle_rf=self.use_oracle_rf,
                                  use_rf_on_pos_traj=self.use_rf_on_pos_traj,
                                  use_rf_on_neg_traj=self.use_rf_on_neg_traj,
@@ -306,7 +317,7 @@ class RobustDSC(object):
                                  n_training_steps=int(2e6),  # TODO
                                  init_salient_event=self.init_salient_event,
                                  target_salient_event=None,
-                                 
+
                                  use_oracle_rf=self.use_oracle_rf,
                                  use_rf_on_pos_traj=self.use_rf_on_pos_traj,
                                  use_rf_on_neg_traj=self.use_rf_on_neg_traj,

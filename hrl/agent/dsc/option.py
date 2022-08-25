@@ -616,6 +616,7 @@ class ModelFreeOption(object):
     def add_to_effect_set(self, obs, info):
         self.effect_set.append(TrainingExample(obs, info))
 
+    @Timer.wrap()
     def get_effective_effect_set(self):  # TODO: batched version
         """ Return the subset of the effect set still in the termination region. """
         if self.global_init:
